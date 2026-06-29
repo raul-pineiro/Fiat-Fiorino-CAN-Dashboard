@@ -34,7 +34,7 @@ The electrical design is optimized for automotive environments, capable of handl
 * **Network Interface:** SN65HVD230 Transceiver (3.3V C-CAN signal conditioning).
 * **Power Management:** LM2596 / Mini360 Buck Step-Down Converter (Stable 5V output), wired exclusively to the 12V switched ignition line (IGN).
 * **Data Persistence & Clock:** DS3231 RTC Module (Real-Time Clock retention and mileage backup via the integrated AT24C32 EEPROM).
-* **User Interface:** [Add your display type here, e.g., 3.5" SPI TFT Display].
+* **User Interface:** 2.4" TFT SPI ST7789 Display.
 
 ---
 
