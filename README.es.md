@@ -34,7 +34,7 @@ El diseño eléctrico está optimizado para entornos de automoción, gestionando
 * **Interfaz de Red:** Transceptor SN65HVD230 (Acondicionamiento de señales C-CAN de 3.3V).
 * **Gestión de Energía:** Convertidor Buck Step-Down LM2596 / Mini360 (Salida estable de 5V), alimentado exclusivamente por la línea de 12V de contacto (IGN).
 * **Persistencia de Datos y Reloj:** Módulo RTC DS3231 (Retención de hora exacta y almacenamiento de seguridad del kilometraje en su EEPROM AT24C32 integrada).
-* **Interfaz de Usuario:** [Añade aquí tu tipo de pantalla, ej. Pantalla TFT SPI de 3.5"].
+* **Interfaz de Usuario:** Pantalla 2.4" TFT SPI ST7789.
 
 ---
 
