@@ -1,4 +1,4 @@
-# 🏎️ Fiat Fiorino CAN-Bus Dashboard (400k km Fix)
+# Fiat Fiorino TFT Display Upgrade (400k km Odometer Fix)
 
 <div align="center">
   <img src="https://img.shields.io/badge/C++-000000?style=for-the-badge&logo=c%2B%2B&logoColor=red" alt="C++"/>
@@ -10,41 +10,52 @@
 ---
 
 <p align="center">
-  <b>🇬🇧 English</b> | 🇪🇸 <a href="README.es.md">Leer en Español</a>
+  <b>🇬🇧 English</b> | 🇪🇸 <a href="README.es.md">Español</a>
 </p>
 
 ---
 
-## 🛑 The Problem
-The OEM instrument clusters on the Fiat Mini platform (Fiorino, Grande Punto, Alfa Romeo Mito) suffer from a hardware/software limitation: upon reaching **400,000 km**, the odometer permanently stops recording mileage. 
-This project focuses on replacing the legacy, locked dashboard with an embedded digital solution, ensuring proper functionality without altering the vehicle's core safety systems.
+## Overview
 
-## ⚙️ Technical Solution
-Design and implementation of an automotive-grade telemetry and visualization system powered by an **ESP32**. The device interfaces in parallel with the vehicle's high-speed **C-CAN (500 kbps)** network via the OBD-II port, operating strictly in *Listen-Only Mode* to guarantee the isolation and integrity of safety-critical modules (ABS/ECU).
+Instrument clusters on Fiat Mini platform vehicles (Fiorino, Grande Punto, Alfa Romeo Mito) have a factory software bug: once the odometer reaches **399,999 km**, it permanently freezes and stops recording mileage.
 
-The system intercepts wheel speed CAN frames broadcasted by the ABS module, calculates physical displacement using numerical integration, and stores the cumulative mileage data into an external EEPROM to prevent flash memory degradation on the microcontroller.
+Rather than replacing the entire cluster or re-flashing EEPROMs that fail again later, this project replaces the stock central monochrome LCD with a **2.4" ST7789 color TFT display** driven by an ESP32. The microcontroller reads telemetry from the vehicle's B-CAN bus in real time, keeps track of extra mileage past 400,000 km, and renders a custom UI.
 
 ---
 
-## 🏗️ Hardware Architecture
+## Hardware Design
 
-The electrical design is optimized for automotive environments, capable of handling 12V-14V voltage fluctuations and isolating power consumption when the ignition is turned off to prevent parasitic battery drain.
+The custom board interfaces directly with the cluster's internal electronics:
 
-* **Microcontroller:** ESP32 DevKit (Core logic, CAN decoding, and OTA updates).
-* **Network Interface:** SN65HVD230 Transceiver (3.3V C-CAN signal conditioning).
-* **Power Management:** LM2596 / Mini360 Buck Step-Down Converter (Stable 5V output), wired exclusively to the 12V switched ignition line (IGN).
-* **Data Persistence & Clock:** DS3231 RTC Module (Real-Time Clock retention and mileage backup via the integrated AT24C32 EEPROM).
-* **User Interface:** 2.4" TFT SPI ST7789 Display.
+* **MCU:** ESP32 DevKit (handles dual-core RTOS logic, display DMA, and deep sleep state).
+* **CAN Interface:** **TJA1055T** (Fault-Tolerant Low-Speed B-CAN transceiver) paired with a **TXS0108E** bi-directional logic level shifter (3.3V <-> 5V).
+* **Display:** 2.4" SPI TFT (ST7789) driven using **LovyanGFX** with hardware DMA.
+* **RTC & External Storage:** **DS3231 RTC + AT24C32 EEPROM** over I2C. Stores extra mileage past 399,999 km without wearing out the ESP32's flash memory.
+* **Dual Power Regulation:**
+  * **Buck 1 (Always-On 12V / Battery Line 30):** Keeps the ESP32 powered briefly after ignition off to execute EEPROM saves and transition into Deep Sleep (~10–20 µA consumption).
+  * **Buck 2 (Switched 12V / Ignition Line 15):** Powers the CAN transceivers and level shifters only when the ignition key is turned on.
+* **Ignition Sensor:** GPIO 34 monitors key status using an RC filter divider (33kΩ / 10kΩ + 100nF) to trigger a hardware ISR (`FALLING`).
+* **Cluster Buttons:** GPIO 35 & 32 read original dashboard/stalk button ladders through high-impedance voltage dividers (100kΩ / 150kΩ) on ADC1.
+---
+
+## Firmware Architecture (FreeRTOS)
+
+The software is written in C++ using FreeRTOS, splitting telemetry decoding and UI rendering across both ESP32 cores:
+
+* **Core 0 (`task_can_core0`):** High-priority execution. Decodes B-CAN frames (speed, RPM, fuel, cluster mileage), handles button polling on ADC1, and responds to ignition interrupts.
+* **Core 1 (`task_gui_core1`):** Renders the ST7789 UI via SPI DMA (30–60 FPS). Updates numerical text asynchronously (~200 ms) to avoid visual flicker. Synchronizes local system time with the DS3231 RTC.
+* **Thread Safety:** Core 0 updates telemetry into a thread-safe `SharedData` struct protected by a FreeRTOS `dataMutex`.
+* **Power-Down Sequence:** When ignition drops, GPIO 34 fires an ISR. Core 1 pauses drawing, writes total extra mileage to the AT24C32 EEPROM over I2C, and calls `esp_deep_sleep_start()`.
+* **Passive CAN ASCII Streamer:** Toggling `#define ENABLE_USB_SNIFFER 1` outputs raw B-CAN frames over Serial using standard LAWICEL/SLCAN formatting (`t1238...`). This allows live traffic monitoring and logging via any Serial terminal or custom Python scripts.
 
 ---
 
-## 👨‍💻 Software Development & Reverse Engineering
+## Third-Party Libraries & Credits
 
-The firmware is developed in C++ and structured into three primary sub-systems:
-
-1. **CAN Sniffing & Decoding:** Reverse engineering the C-CAN bus to isolate specific frame IDs transmitted by the ABS module that contain raw wheel speed data.
-2. **Odometry Algorithm:** Integration algorithm designed to process real-time velocity packets into accurate distance travelled.
-3. **Over-The-Air (OTA):** Wireless firmware update deployment via WiFi, allowing in-car calibration directly from the driver's seat and eliminating electrical hazards from USB tethering.
+* **[LovyanGFX](https://github.com/lovyan03/LovyanGFX)** by `@lovyan03` – Fast, memory-efficient display driver library for ESP32 (linked as Git submodule).
 
 ---
-> **Engineering Note:** This project interacts with critical automotive networks. Physical connection to pins 6 and 14 of the OBD-II port is handled completely passively (sniffing) to never interfere with the bus arbitration or priority of ECU/ABS messaging.
+
+## License
+
+MIT License. See `LICENSE` for details.
