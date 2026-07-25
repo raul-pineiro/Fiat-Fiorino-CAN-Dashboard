@@ -1,4 +1,4 @@
-# 🏎️ Fiat Fiorino CAN-Bus Dashboard (Solución 400k km)
+# Cuadro TFT para Fiat Fiorino (Solución al fallo de los 400k km)
 
 <div align="center">
   <img src="https://img.shields.io/badge/C++-000000?style=for-the-badge&logo=c%2B%2B&logoColor=red" alt="C++"/>
@@ -10,41 +10,53 @@
 ---
 
 <p align="center">
-  🇬🇧 <a href="README.md">English</a> | <b>🇪🇸 Leer en Español</b>
+  🇬🇧 <a href="README.md">English</a> | <b>🇪🇸 Español</b>
 </p>
 
 ---
 
-## 🛑 El Problema
-Los cuadros de instrumentos originales de la plataforma Fiat Mini (Fiorino, Grande Punto, Alfa Romeo Mito) sufren de una limitación de hardware/software: al alcanzar los **400.000 km**, el odómetro deja de registrar kilometraje de forma permanente. 
-Este proyecto nace de la necesidad de sustituir el panel defectuoso por una solución digital embebida, legal y funcional sin interferir en los sistemas de seguridad del vehículo.
+## Descripción del Proyecto
 
-## ⚙️ La Solución Técnica
-Diseño e implementación de un sistema de telemetría y visualización de grado automotriz basado en **ESP32**. El dispositivo se conecta en paralelo a la red de alta velocidad **C-CAN (500 kbps)** del vehículo mediante el puerto OBD-II, operando estrictamente en *Listen-Only Mode* (Modo Escucha Pasiva) para garantizar la integridad y el aislamiento de módulos críticos como el ABS o la ECU.
+Los cuadros de instrumentos de la plataforma Fiat Mini (Fiorino, Grande Punto, Alfa Romeo Mito) tienen un fallo de fábrica en su firmware: al alcanzar los **399.999 km**, el odómetro se congela permanentemente y deja de contar.
 
-El sistema intercepta las tramas CAN de los sensores de velocidad de rueda emitidas por el módulo ABS, calcula el desplazamiento físico mediante integración numérica y almacena la odometría acumulada en una memoria EEPROM externa para evitar el desgaste de la memoria flash del microcontrolador.
+En lugar de cambiar el cuadro completo o reprogramar memorias EEPROM que vuelven a fallar con el tiempo, este proyecto sustituye la pantalla LCD monocromo central original por una **pantalla TFT a color ST7789 de 2.4"** controlada por un ESP32. El microcontrolador lee la red B-CAN del coche en tiempo real, guarda el kilometraje extra a partir de los 400.000 km y muestra la telemetría en pantalla.
 
 ---
 
-## 🏗️ Arquitectura de Hardware
+## Arquitectura de Hardware
 
-El diseño eléctrico está optimizado para entornos de automoción, gestionando las fluctuaciones de tensión de 12V-14V e infiriendo un consumo cero cuando el contacto está apagado para evitar el drenaje de la batería.
+La electrónica se conecta directamente a la placa interna del cuadro:
 
-* **Microcontrolador:** ESP32 DevKit (Gestión lógica, decodificación CAN y actualizaciones OTA).
-* **Interfaz de Red:** Transceptor SN65HVD230 (Acondicionamiento de señales C-CAN de 3.3V).
-* **Gestión de Energía:** Convertidor Buck Step-Down LM2596 / Mini360 (Salida estable de 5V), alimentado exclusivamente por la línea de 12V de contacto (IGN).
-* **Persistencia de Datos y Reloj:** Módulo RTC DS3231 (Retención de hora exacta y almacenamiento de seguridad del kilometraje en su EEPROM AT24C32 integrada).
-* **Interfaz de Usuario:** Pantalla 2.4" TFT SPI ST7789.
+* **Microcontrolador:** ESP32 DevKit (gestión RTOS a doble núcleo, DMA para pantalla y Deep Sleep).
+* **Interfaz CAN:** Transceptor **TJA1055T** (B-CAN de baja velocidad tolerante a fallos) adaptado con un convertidor de nivel lógico bidireccional **TXS0108E** (3.3V <-> 5V).
+* **Pantalla:** TFT 2.4" SPI (ST7789) controlada mediante **LovyanGFX** con DMA por hardware.
+* **Reloj y Memoria Externa:** **DS3231 RTC + EEPROM AT24C32** por I2C. Guarda los kilómetros extra pasados los 399.999 km para evitar desgastar la memoria Flash del ESP32.
+* **Gestión de Alimentación (Doble Regulador):**
+  * **Regulador 1 (12V Batería Directa / Línea 30):** Mantiene el ESP32 alimentado tras quitar la llave para ejecutar el guardado en EEPROM y entrar en Deep Sleep (~10–20 µA).
+  * **Regulador 2 (12V Contacto / Línea 15):** Alimenta los buses y transceptores solo cuando el coche está encendido.
+* **Sensor de Ignición:** GPIO 34 detecta el corte de contacto mediante un divisor RC (33kΩ / 10kΩ + 100nF) disparando una interrupción por hardware (`FALLING`).
+* **Botonera:** GPIO 35 y 32 leen los botones del cuadro/volante mediante divisores de alta impedancia (100kΩ / 150kΩ) en ADC1.
+
+---
+
+## Arquitectura de Firmware (FreeRTOS)
+
+El software está escrito en C++ sobre FreeRTOS, repartiendo las tareas entre los dos núcleos del ESP32:
+
+* **Core 0 (`task_can_core0`):** Tareas de alta prioridad. Decodifica tramas B-CAN (velocidad, RPM, combustible, odómetro), lee la botonera por ADC1 y atiende la interrupción del sensor de llave.
+* **Core 1 (`task_gui_core1`):** Dibuja la interfaz en la pantalla ST7789 por SPI DMA (30–60 FPS). Actualiza valores numéricos de forma asíncrona (~200 ms) para evitar parpadeos y sincroniza la hora local con el RTC DS3231.
+* **Seguridad entre Hilos:** El Core 0 guarda la telemetría en una estructura `SharedData` protegida por un `dataMutex` de FreeRTOS.
+* **Secuencia de Apagado:** Al quitar la llave, el GPIO 34 dispara la ISR. El Core 1 detiene el dibujo, escribe el kilometraje acumulado en la EEPROM AT24C32 por I2C y ejecuta `esp_deep_sleep_start()`.
+* **Emisión Pasiva de Tramas por Serie:** Al activar `#define ENABLE_USB_SNIFFER 1`, el firmware transmite las tramas B-CAN por el puerto serie usando el formato estándar LAWICEL/SLCAN (`t1238...`), permitiendo monitorizar y registrar el tráfico en tiempo real mediante cualquier terminal serie o scripts en Python.
 
 ---
 
-## 👨‍💻 Desarrollo de Software e Ingeniería Inversa
+## Librerías y Créditos
 
-El firmware está desarrollado en C++ y se estructura en tres subsistemas principales:
-
-1. **CAN Sniffing & Decoding:** Ingeniería inversa sobre el bus C-CAN para aislar los IDs específicos de los mensajes del ABS que contienen los datos brutos de velocidad de las ruedas.
-2. **Algoritmo de Odometría:** Algoritmo de integración diseñado para procesar los paquetes de velocidad en tiempo real y transformarlos en distancia exacta recorrida.
-3. **Over-The-Air (OTA):** Implementación de actualizaciones de firmware inalámbricas por WiFi, lo que permite la calibración dentro del coche directamente desde el asiento del conductor, eliminando riesgos eléctricos por conexión USB.
+* **[LovyanGFX](https://github.com/lovyan03/LovyanGFX)** de `@lovyan03` – Librería rápida y eficiente para pantallas en ESP32 (incluida como submódulo Git).
 
 ---
-> **Nota de Ingeniería:** Este proyecto interactúa con redes automotrices críticas. La conexión física a los pines 6 y 14 del puerto OBD-II se realiza de manera completamente pasiva (sniffing) para no interferir jamás con el arbitraje de la red ni la prioridad de los mensajes de la ECU o el ABS.
+
+## Licencia
+
+Licencia MIT. Consulta `LICENSE` para más información.
