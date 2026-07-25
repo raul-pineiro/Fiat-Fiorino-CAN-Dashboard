@@ -1,0 +1,27 @@
+# Puedes usar el símbolo de almohadilla para escribir comentarios
+
+# Carpetas de compilación (Generadas automáticamente, no se suben)
+build/
+
+# Entorno local de desarrollo
+.vscode/
+
+# Binarios y librerías dinámicas (Nunca se suben)
+*.dll
+*.exe
+
+# Documentación Markdown (Por petición tuya)
+*.md
+
+# Otras carpetas que quieres excluir
+Sniffer/
+PythonSim/
+BackupPreDesIacion/
+
+# Archivos de caché de Python (Siempre es buena idea ignorarlos)
+__pycache__/
+*.pyc
+*.pyo
+
+leer_main.py
+simulador.cpp

@@ -1,0 +1,16 @@
+idf_component_register(
+    SRCS 
+        "main.cpp"
+        "CanManager.cpp"
+        "ScreenHandler.cpp"
+        "StorageManager.cpp" 
+    INCLUDE_DIRS 
+        "."
+    REQUIRES 
+        "LovyanGFX"
+        "freertos"
+        "driver"
+        "esp_driver_i2c"
+        "esp_driver_twai"
+        "log"
+)
