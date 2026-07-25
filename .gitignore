@@ -1,27 +1,36 @@
-# Puedes usar el símbolo de almohadilla para escribir comentarios
-
-# Carpetas de compilación (Generadas automáticamente, no se suben)
+# ==========================================
+# ESP-IDF & C++ Build Outputs
+# ==========================================
 build/
+*.elf
+*.bin
+*.map
 
-# Entorno local de desarrollo
+# ==========================================
+# IDE & Environment
+# ==========================================
 .vscode/
+.idea/
 
-# Binarios y librerías dinámicas (Nunca se suben)
-*.dll
+# ==========================================
+# Executables & Dynamic Libraries
+# ==========================================
 *.exe
+*.dll
+*.so
+*.dylib
 
-# Documentación Markdown (Por petición tuya)
-*.md
-
-# Otras carpetas que quieres excluir
-Sniffer/
-PythonSim/
-BackupPreDesIacion/
-
-# Archivos de caché de Python (Siempre es buena idea ignorarlos)
+# ==========================================
+# Python Cache
+# ==========================================
 __pycache__/
 *.pyc
 *.pyo
 
-leer_main.py
-simulador.cpp
+# ==========================================
+# Local Development & Temporary Files
+# ==========================================
+.local/
+temp/
+Backup*/
+*.log
