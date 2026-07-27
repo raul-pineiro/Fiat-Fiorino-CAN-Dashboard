@@ -3,22 +3,11 @@
 #include "freertos/task.h"
 #include <cstring>
 #include "esp_log.h"
+#include <algorithm>
 
-/**
- * @brief Constructs the StorageManager instance.
- * 
- * @param port I2C port number.
- * @param sda GPIO number for the I2C SDA line.
- * @param scl GPIO number for the I2C SCL line.
- */
 StorageManager::StorageManager(i2c_port_t port, gpio_num_t sda, gpio_num_t scl) 
     : _port(port), _sda(sda), _scl(scl) {}
 
-/**
- * @brief Initializes the I2C master bus and configures the EEPROM device.
- * 
- * @return true if the bus and device were successfully initialized.
- */
 bool StorageManager::begin() {
     i2c_master_bus_config_t bus_config = {};
     bus_config.i2c_port = _port;
@@ -40,83 +29,64 @@ bool StorageManager::begin() {
     return true;
 }
 
-/**
- * @brief Writes a block of data to a specific memory address in the EEPROM.
- * 
- * @param mem_addr The 16-bit internal memory address of the EEPROM.
- * @param data Pointer to the payload buffer to be written.
- * @param len Number of bytes to write.
- * @return true if the I2C transmission was successful and length is valid.
- */
 bool StorageManager::writeEEPROM(uint16_t mem_addr, const uint8_t* data, size_t len) {
-    // 64 bytes is more than enough for car metrics and 100% safe for ESP32.
-    constexpr size_t MAX_PAYLOAD_SIZE = 64; 
+    constexpr size_t PAGE_SIZE = 32; 
+    size_t bytes_written = 0;
 
-    if (len == 0 || len > MAX_PAYLOAD_SIZE) {
-        return false; 
+    while (bytes_written < len) {
+        uint16_t current_addr = mem_addr + bytes_written;
+        
+        size_t bytes_left_in_page = PAGE_SIZE - (current_addr % PAGE_SIZE);
+        size_t bytes_to_write = std::min(bytes_left_in_page, len - bytes_written);
+
+        uint8_t buffer[PAGE_SIZE + 2];
+        buffer[0] = (uint8_t)(current_addr >> 8);
+        buffer[1] = (uint8_t)(current_addr & 0xFF);
+        memcpy(&buffer[2], data + bytes_written, bytes_to_write);
+
+        esp_err_t ret = i2c_master_transmit(_eeprom_handle, buffer, 2 + bytes_to_write, pdMS_TO_TICKS(100));
+        if (ret != ESP_OK) return false;
+
+        // EEPROM requires write cycle time (usually ~5ms)
+        vTaskDelay(pdMS_TO_TICKS(10)); 
+        
+        bytes_written += bytes_to_write;
     }
-
-    uint8_t buffer[MAX_PAYLOAD_SIZE + 2];
     
-    // I2C EEPROM format requires a 2-byte memory address preceding the payload
-    buffer[0] = (uint8_t)(mem_addr >> 8);
-    buffer[1] = (uint8_t)(mem_addr & 0xFF);
-    
-    memcpy(&buffer[2], data, len);
-
-    esp_err_t ret = i2c_master_transmit(_eeprom_handle, buffer, 2 + len, pdMS_TO_TICKS(100));
-    
-    // Blocks task to allow the EEPROM's internal physical write cycle to complete
-    vTaskDelay(pdMS_TO_TICKS(10)); 
-    return (ret == ESP_OK);
+    return true;
 }
 
-/**
- * @brief Reads a block of data from a specific memory address in the EEPROM.
- * 
- * @param mem_addr The 16-bit internal memory address of the EEPROM.
- * @param data Pointer to the buffer where the read data will be stored.
- * @param len Number of bytes to read.
- * @return true if the I2C transaction was successful.
- */
 bool StorageManager::readEEPROM(uint16_t mem_addr, uint8_t* data, size_t len) {
     uint8_t addr_buf[2] = { (uint8_t)(mem_addr >> 8), (uint8_t)(mem_addr & 0xFF) };
     esp_err_t ret = i2c_master_transmit_receive(_eeprom_handle, addr_buf, 2, data, len, pdMS_TO_TICKS(100));
     return (ret == ESP_OK);
 }
 
-/**
- * @brief Saves the extra kilometer value to the EEPROM with a validation header.
- * 
- * @param km The kilometer value to store.
- * @return true if the write operation was successful.
- */
-bool StorageManager::saveExtraKM(uint32_t km) {
-    uint8_t buffer[8];
-    uint32_t magic = MAGIC_NUMBER; 
+bool StorageManager::saveData(const DashboardData& data) {
+    bool ok1 = writeEEPROM(MEM_ADDR_PRIMARY, (const uint8_t*)&data, sizeof(DashboardData));
+    bool ok2 = writeEEPROM(MEM_ADDR_BACKUP, (const uint8_t*)&data, sizeof(DashboardData));
     
-    memcpy(&buffer[0], &magic, 4);
-    memcpy(&buffer[4], &km, 4);
-    
-    return writeEEPROM(MEM_ADDR, buffer, 8);
+    return ok1 && ok2;
 }
 
-/**
- * @brief Loads and validates the extra kilometer value from the EEPROM.
- * 
- * @param km Reference to store the retrieved kilometer value.
- * @return true if the data was successfully read and validated against the magic number.
- */
-bool StorageManager::loadExtraKM(uint32_t &km) {
-    uint8_t buffer[8];
-    if (!readEEPROM(MEM_ADDR, buffer, 8)) return false;
-
-    uint32_t magic;
-    memcpy(&magic, &buffer[0], 4);
+bool StorageManager::loadData(DashboardData& data) {
+    DashboardData temp_data;
     
-    if (magic == MAGIC_NUMBER) {
-        memcpy(&km, &buffer[4], 4);
-        return true;
+    if (readEEPROM(MEM_ADDR_PRIMARY, (uint8_t*)&temp_data, sizeof(DashboardData))) {
+        if (temp_data.magic == MAGIC_NUMBER) {
+            data = temp_data;
+            return true;
+        }
     }
+    
+    // Fallback to backup memory slot
+    if (readEEPROM(MEM_ADDR_BACKUP, (uint8_t*)&temp_data, sizeof(DashboardData))) {
+        if (temp_data.magic == MAGIC_NUMBER) {
+            data = temp_data;
+            saveData(data); // Restore primary from backup
+            return true;
+        }
+    }
+    
     return false;
 }

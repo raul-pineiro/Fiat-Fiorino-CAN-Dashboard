@@ -4,6 +4,8 @@ idf_component_register(
         "CanManager.cpp"
         "ScreenHandler.cpp"
         "StorageManager.cpp" 
+        "RtcManager.cpp"
+        "TripComputer.cpp"
     INCLUDE_DIRS 
         "."
     REQUIRES 
