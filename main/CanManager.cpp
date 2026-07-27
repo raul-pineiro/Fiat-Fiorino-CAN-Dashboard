@@ -11,17 +11,6 @@ CanManager::~CanManager() {
     stop();
 }
 
-/**
- * @brief ISR callback triggered upon successful CAN frame reception.
- * 
- * Reads the frame from the TWAI driver and defers processing by 
- * pushing it to the FreeRTOS receive queue.
- * 
- * @param handle TWAI node handle.
- * @param edata Event data (unused).
- * @param user_ctx Pointer to the CanManager instance.
- * @return true if a high priority task was woken, false otherwise.
- */
 bool CanManager::onRxDoneCallback(twai_node_handle_t handle, const twai_rx_done_event_data_t *edata, void *user_ctx) {
     CanManager* manager = static_cast<CanManager*>(user_ctx);
 
@@ -40,11 +29,6 @@ bool CanManager::onRxDoneCallback(twai_node_handle_t handle, const twai_rx_done_
     return false;
 }
 
-/**
- * @brief Initializes the TWAI node in listen-only mode.
- * 
- * @return true if initialization was successful or if already initialized.
- */
 bool CanManager::begin() {
     if (_isInitialized) return true;
 
@@ -88,9 +72,6 @@ bool CanManager::begin() {
     return true;
 }
 
-/**
- * @brief Stops the TWAI node and frees allocated resources.
- */
 void CanManager::stop() {
     if (!_isInitialized) return;
 
@@ -106,24 +87,12 @@ void CanManager::stop() {
     // ESP_LOGI(TAG, "TWAI node stopped and deleted");
 }
 
-/**
- * @brief Blocks and waits to receive a message from the queue.
- * 
- * @param msg Reference to the wrapper where the message will be stored.
- * @param timeoutMs Maximum time to wait for a message in milliseconds.
- * @return true if a message was successfully received within the timeout.
- */
 bool CanManager::receiveMessage(CanFrameWrapper& msg, uint32_t timeoutMs) {
     if (!_isInitialized) return false;
     
     return (xQueueReceive(_rxQueue, &msg, pdMS_TO_TICKS(timeoutMs)) == pdTRUE);
 }
 
-/**
- * @brief Retrieves the count of frames dropped due to queue overflow.
- * 
- * @return Number of dropped messages.
- */
 uint32_t CanManager::getMissedMessagesCount() {
     if (!_isInitialized) return 0;
     

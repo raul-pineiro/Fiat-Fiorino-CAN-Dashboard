@@ -1,6 +1,12 @@
 #include "ScreenHandler.h"
 #include <stdio.h>
 #include <time.h>
+#include "esp_timer.h"
+
+// RPM limit thresholds for color change
+#define RPM_LIMIT_1 3000
+#define RPM_LIMIT_2 3500
+#define RPM_LIMIT_3 5000
 
 ScreenHandler::LGFX_Config::LGFX_Config() {
     {
@@ -44,13 +50,13 @@ ScreenHandler::LGFX_Config::LGFX_Config() {
 
 ScreenHandler::ScreenHandler() 
     : canvas(&lcd),
-      _current_style(DisplayStyle::CLASSIC_AMBER),
-      _current_page(DisplayPage::MAIN_DASH),
       _current_km(0), 
       _rpm(0), 
       _consumption(0.0f), 
       _temp(0), 
       _fuel(0), 
+      _speed(0), _trip_km(0), _trip_l_100km(0.0f), _trip_avg_kmh(0), _trip_time(0),
+      _autonomy_km(0),
       _trip_mode(FiatCAN::TRIP_IDLE) {}
 
 ScreenHandler::~ScreenHandler() {
@@ -81,151 +87,301 @@ void ScreenHandler::updateTripMode(FiatCAN::TripMode mode) {
     _trip_mode = mode; 
 }
 
+void ScreenHandler::updateSpeed(uint16_t speed) { _speed = speed; }
+
+void ScreenHandler::updateFuel(uint8_t fuel_liters) {
+    _fuel = fuel_liters;
+}
+
+void ScreenHandler::updateAutonomy(uint16_t autonomy_km) {
+    _autonomy_km = autonomy_km;
+}
+
+void ScreenHandler::updateTripData(float trip_km, float trip_l_100km, uint16_t trip_avg_kmh, uint32_t trip_time) {
+    _trip_km = trip_km;
+    _trip_l_100km = trip_l_100km;
+    _trip_avg_kmh = trip_avg_kmh;
+    _trip_time = trip_time;
+}
+
 void ScreenHandler::setStyle(DisplayStyle style) {
-    _current_style = style;
+    _settings.display_style = style;
 }
 
 void ScreenHandler::toggleStyle() {
-    _current_style = (_current_style == DisplayStyle::CLASSIC_AMBER) 
+    _settings.display_style = (_settings.display_style == DisplayStyle::CLASSIC_AMBER) 
                      ? DisplayStyle::MODERN_DARK 
                      : DisplayStyle::CLASSIC_AMBER;
 }
 
 void ScreenHandler::nextPage() {
-    _current_page = (_current_page == DisplayPage::MAIN_DASH) 
-                    ? DisplayPage::TRIP_INFO 
-                    : DisplayPage::MAIN_DASH;
+    int next = (static_cast<int>(_settings.display_page) + 1) % static_cast<int>(DisplayPage::MAX_PAGES);
+    _settings.display_page = static_cast<DisplayPage>(next);
 }
 
 void ScreenHandler::setPage(DisplayPage page) {
-    _current_page = page;
+    _settings.display_page = page;
 }
 
 void ScreenHandler::render() {
-    if (_current_style == DisplayStyle::CLASSIC_AMBER) {
-        if (_current_page == DisplayPage::MAIN_DASH) {
-            drawClassicMain();
-        } else {
-            drawClassicTrip();
-        }
+    if (_ui_mode == UIMode::DASHBOARD) {
+        drawPage();
     } else {
-        if (_current_page == DisplayPage::MAIN_DASH) {
-            drawModernMain();
-        } else {
-            drawModernTrip();
-        }
+        renderMenu();
     }
-
     drawOverlays();
     canvas.pushSprite(0, 0);
 }
 
-void ScreenHandler::drawClassicMain() {
+void ScreenHandler::renderClassicTemplate(const char* sub_text, const char* main_value, bool show_trip, IconType icon, const char* bottom_left_text) {
     canvas.fillSprite(AMBER_RETRO);
     int width = canvas.width();
     int height = canvas.height();
 
     canvas.setTextColor(TFT_BLACK, AMBER_RETRO);
-    canvas.setTextDatum(middle_center);
-    
-    canvas.setTextSize(3);
-    canvas.drawString("TOTAL KM", width / 2, height / 2 - 10);
-    
+
+    int value_y = height / 3 - 15;
     canvas.setTextSize(4);
-    canvas.drawNumber(_current_km, width / 2, height / 3 - 15);
+    canvas.setTextDatum(middle_center);
+    canvas.drawString(main_value, width / 2, value_y);
+
+    if (icon != IconType::NONE) {
+        drawPlaceholderIcon(icon, width - 25, value_y, TFT_BLACK);
+    }
+
+    int text_y = height / 2 - 10;
+    canvas.setTextSize(3);
+    canvas.setTextDatum(middle_center);
+    canvas.drawString(sub_text, width / 2, text_y);
     
+    if (show_trip) {
+        canvas.setTextSize(2);
+        canvas.setTextDatum(middle_left);
+        canvas.drawString("TRIP", 15, text_y);
+    }
+
     int line_y = height - 55;
     canvas.drawFastHLine(15, line_y, width - 30, TFT_BLACK);
     
     int bottom_y = line_y + (height - line_y) / 2;
-    canvas.setTextDatum(middle_left);
     canvas.setTextSize(3);
-    
-    char buf[16];
-    snprintf(buf, sizeof(buf), "RPM: %lu", (unsigned long)_rpm);
-    canvas.drawString(buf, 15, bottom_y);
+    canvas.setTextDatum(middle_left);
+    canvas.drawString(bottom_left_text, 15, bottom_y);
 }
 
-void ScreenHandler::drawClassicTrip() {
-    canvas.fillSprite(AMBER_RETRO);
-    int width = canvas.width();
-    int height = canvas.height();
+void ScreenHandler::drawPage() {
+    char value_buf[32] = {0};
+    char bottom_buf[32] = {0};
 
-    canvas.setTextColor(TFT_BLACK, AMBER_RETRO);
+    const char* sub_text = "";
+    bool show_trip = false;
+    IconType icon = IconType::NONE;
+
+    snprintf(bottom_buf, sizeof(bottom_buf), "RPM: %u", static_cast<unsigned>(_rpm));
+
+    switch (_settings.display_page) {
+        case DisplayPage::TOTAL_KM:
+            sub_text = "TOTAL KM";
+            snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_current_km));
+            break;
+
+        case DisplayPage::AUTONOMY:
+            sub_text = "AUTONOMY";
+            icon = IconType::FUEL;
+            
+            if (_autonomy_km > 0) {
+                if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                    snprintf(value_buf, sizeof(value_buf), "%u mi", (unsigned int)(_autonomy_km * 0.621371f));
+                } else {
+                    snprintf(value_buf, sizeof(value_buf), "%u km", (unsigned int)(_autonomy_km));
+                }
+            } else {
+                snprintf(value_buf, sizeof(value_buf), "--- %s", 
+                         _settings.unit_system == MeasurementSystem::IMPERIAL ? "mi" : "km"); 
+            }
+            break;
+
+        case DisplayPage::TRIP_KM:
+            sub_text = "DISTANCE";
+            show_trip = true;
+            snprintf(value_buf, sizeof(value_buf), "%.1f", static_cast<float>(_trip_km));
+            break;
+
+        case DisplayPage::TRIP_L_100KM:
+            sub_text = "AVG CONS.";
+            show_trip = true;
+            snprintf(value_buf, sizeof(value_buf), "%.1f", _trip_l_100km);
+            break;
+
+        case DisplayPage::INSTANT_L_100KM:
+            sub_text = "INST CONS.";
+            snprintf(value_buf, sizeof(value_buf), "%.1f", _consumption);
+            break;
+
+        case DisplayPage::TRIP_AVG_KMH:
+            sub_text = "AVG SPEED";
+            show_trip = true; 
+            if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_trip_avg_kmh * 0.621371f));
+                snprintf(bottom_buf, sizeof(bottom_buf), "mph");
+            } else {
+                snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_trip_avg_kmh));
+                snprintf(bottom_buf, sizeof(bottom_buf), "km/h");
+            }
+            break;
+
+        case DisplayPage::TRIP_TIME:
+            sub_text = "TIME";
+            show_trip = true;
+
+            if (_trip_time >= 3600) {
+                unsigned hours = static_cast<unsigned>(_trip_time / 3600);
+                unsigned minutes = static_cast<unsigned>((_trip_time % 3600) / 60);
+                snprintf(value_buf, sizeof(value_buf), "%02u:%02u", hours, minutes);
+            } else {
+                unsigned minutes = static_cast<unsigned>(_trip_time / 60);
+                unsigned seconds = static_cast<unsigned>(_trip_time % 60);
+                snprintf(value_buf, sizeof(value_buf), "%02u:%02u", minutes, seconds);
+            }
+            break;
+            
+        case DisplayPage::RPM_TEMP:
+            sub_text = "ENGINE RPM";
+            icon = IconType::TEMP;
+            snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_rpm));
+            snprintf(bottom_buf, sizeof(bottom_buf), "Temp: %d C", _temp);
+            break;
+
+        case DisplayPage::DIGITAL_SPEED:
+            sub_text = "SPEED";
+            if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                snprintf(value_buf, sizeof(value_buf), "%u", (unsigned int)(_speed * 0.621371f));
+                snprintf(bottom_buf, sizeof(bottom_buf), "mph");
+            } else {
+                snprintf(value_buf, sizeof(value_buf), "%u", (unsigned int)(_speed));
+                snprintf(bottom_buf, sizeof(bottom_buf), "km/h");
+            }
+            break;
+
+        default:
+            return;
+    }
+
+    if (_settings.display_style == DisplayStyle::CLASSIC_AMBER) {
+        renderClassicTemplate(sub_text, value_buf, show_trip, icon, bottom_buf);
+    } else {
+        renderModernTemplate(sub_text, value_buf, show_trip, icon, bottom_buf);
+    }
+}
+
+void ScreenHandler::drawPlaceholderIcon(IconType icon, int x, int y, uint16_t color) {
+    canvas.setFont(nullptr);
     canvas.setTextDatum(middle_center);
+    canvas.setTextSize(2);
+    canvas.setTextColor(color);
+    canvas.drawCircle(x, y, 14, color);
     
-    canvas.setTextSize(3);
-    canvas.drawString("INST. CONSUMPTION", width / 2, height / 2 - 10);
-    
-    canvas.setTextSize(4);
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.1f L/h", _consumption);
-    canvas.drawString(buf, width / 2, height / 3 - 15);
-    
-    int line_y = height - 55;
-    canvas.drawFastHLine(15, line_y, width - 30, TFT_BLACK);
-    
-    int bottom_y = line_y + (height - line_y) / 2;
-    canvas.setTextDatum(middle_left);
-    canvas.setTextSize(3);
-    
-    snprintf(buf, sizeof(buf), "Temp: %d C", _temp);
-    canvas.drawString(buf, 15, bottom_y);
+    switch (icon) {
+        case IconType::FUEL:
+            canvas.drawString("F", x, y);
+            break;
+        case IconType::TEMP:
+            canvas.drawString("C", x, y);
+            break;
+        case IconType::WARNING:
+            canvas.drawString("!", x, y);
+            break;
+        default:
+            break;
+    }
+    canvas.setTextSize(1);
 }
 
-void ScreenHandler::drawModernMain() {
+void ScreenHandler::renderModernTemplate(const char* sub_text, const char* main_value, bool show_trip, IconType icon, const char* bottom_left_text) {
     canvas.fillSprite(TFT_BLACK); 
     int width = canvas.width();
     int height = canvas.height();
 
-    canvas.drawFastHLine(20, height / 3 - 10, width - 40, TFT_CYAN);
+    uint16_t theme_color = getThemeColorValue(_settings.modern_theme_color);
 
-    canvas.setFont(&fonts::Font2); 
+    // RPM sensitive color line
+    uint16_t line_color;
+
+    if (_rpm <= RPM_LIMIT_1) {
+        line_color = theme_color;
+    } else if (_rpm <= RPM_LIMIT_2) {
+        float t = (float)(_rpm - RPM_LIMIT_1) / (RPM_LIMIT_2 - RPM_LIMIT_1);
+        uint8_t b = 255 - (uint8_t)(255 * t);
+        line_color = lgfx::color565(0, 255, b);
+    } else if (_rpm <= RPM_LIMIT_3) {
+        float t = (float)(_rpm - RPM_LIMIT_2) / (RPM_LIMIT_3 - RPM_LIMIT_2);
+        uint8_t r;       
+        uint8_t g; 
+        if (t < 0.5f) {
+            r = (uint8_t)(255 * (t * 2));
+            g = 255;
+        } else {
+            r = 255;
+            g = (uint8_t)(255 * (1 - ((t - 0.5f) * 2)));
+        }
+        line_color = lgfx::color565(r, g, 0);
+    } else {
+        uint32_t ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        if ((ms / 150) % 2 == 0) { 
+            line_color = TFT_RED;
+        } else {
+            line_color = lgfx::color565(40, 0, 0);
+        }
+    }
+
+    canvas.drawFastHLine(20, height / 3 - 10, width - 40, line_color);
+
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
     canvas.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
     canvas.setTextDatum(middle_center);
     canvas.setTextSize(1);
-    canvas.drawString("ODO", width / 2, height / 4 - 10);
-    
-    canvas.setFont(&fonts::FreeSansBold24pt7b); 
+    canvas.drawString(sub_text, width / 2, height / 4 - 10);
+
+    if (show_trip) {
+        canvas.setTextColor(theme_color, TFT_BLACK);
+        canvas.setTextDatum(middle_left);
+        canvas.drawString("TRIP", 15, height / 4 - 10);
+    }
+
+    canvas.setFont(&fonts::FreeSansBold24pt7b);
     canvas.setTextColor(TFT_WHITE, TFT_BLACK);
     canvas.setTextDatum(middle_center);
-    canvas.setTextSize(1); 
-    canvas.drawNumber(_current_km, width / 2 - 15, height / 2 + 5);
-    
-    canvas.setFont(&fonts::Font2);
-    canvas.drawString("km", width / 2 + 75, height / 2 + 10);
+    int value_y = height / 2 + 5;
+    canvas.drawString(main_value, width / 2, value_y);
 
-    // Reset font for subsequent renders
+    if (icon != IconType::NONE) {
+        int text_width = canvas.textWidth(main_value);
+        int icon_x = (width / 2) + (text_width / 2) + 25; 
+        drawPlaceholderIcon(icon, icon_x, value_y - 5, theme_color); 
+    }
+
+    if (bottom_left_text && bottom_left_text[0] != '\0') {
+        canvas.setFont(&fonts::FreeSansBold9pt7b);
+        canvas.setTextSize(1);
+        canvas.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+        canvas.setTextDatum(bottom_left);
+        canvas.drawString(bottom_left_text, 15, height - 10);
+    }
+
     canvas.setFont(nullptr);
 }
 
-void ScreenHandler::drawModernTrip() {
-    canvas.fillSprite(TFT_BLACK);
-    int width = canvas.width();
-    int height = canvas.height();
+void ScreenHandler::renderMenu() {
+    if (_settings.display_style == DisplayStyle::CLASSIC_AMBER) {
+        drawMenuUI(AMBER_RETRO, TFT_BLACK, TFT_BLACK);
+    } else {
+        drawMenuUI(TFT_BLACK, TFT_WHITE, getThemeColorValue(_settings.modern_theme_color));
+    }
+}
 
-    canvas.fillRoundRect(10, height / 3 - 20, width - 20, 100, 8, TFT_DARKGREY);
-
-    canvas.setFont(&fonts::Font2);
-    canvas.setTextColor(TFT_CYAN, TFT_BLACK);
-    canvas.setTextDatum(middle_center);
-    canvas.setTextSize(1);
-    canvas.drawString("INSTANTANEOUS", width / 2, 30);
-
-    canvas.setFont(&fonts::FreeSansBold24pt7b); 
-    canvas.setTextColor(TFT_WHITE, TFT_DARKGREY);
-    canvas.setTextDatum(middle_center);
-    canvas.setTextSize(1);
-    
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.1f", _consumption);
-    canvas.drawString(buf, width / 2, height / 2 - 5);
-    
-    canvas.setFont(&fonts::Font2);
-    canvas.setTextColor(TFT_LIGHTGREY, TFT_DARKGREY);
-    canvas.drawString("L/h", width / 2, height / 2 + 25);
-
-    canvas.setFont(nullptr);
+void ScreenHandler::showEepromWarning() {
+    _show_eeprom_warning = true;
+    _warning_start_time = xTaskGetTickCount(); 
 }
 
 void ScreenHandler::drawOverlays() {
@@ -241,7 +397,7 @@ void ScreenHandler::drawOverlays() {
     char time_str[10];
     snprintf(time_str, sizeof(time_str), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
     
-    if (_current_style == DisplayStyle::CLASSIC_AMBER) {
+    if (_settings.display_style == DisplayStyle::CLASSIC_AMBER) {
         int line_y = height - 55;
         int bottom_y = line_y + (height - line_y) / 2;
         
@@ -278,9 +434,313 @@ void ScreenHandler::drawOverlays() {
             canvas.drawString("Data lost", width / 2, height / 2 + 10);
         }
     }
+    
+    if (_show_eeprom_warning) {
+        if (xTaskGetTickCount() - _warning_start_time < pdMS_TO_TICKS(5000)) {
+            canvas.fillRect(10, 10, width - 20, 40, TFT_RED);
+            canvas.drawRect(10, 10, width - 20, 40, TFT_WHITE);
+            
+            canvas.setTextColor(TFT_WHITE);
+            canvas.setTextDatum(middle_center);
+            canvas.setTextSize(1);
+            canvas.drawString("EEPROM CORRUPT / RESET", width / 2, 30);
+        } else {
+            _show_eeprom_warning = false;
+        }
+    }
+}
+
+void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t highlight_color) {
+    canvas.fillSprite(bg_color);
+    canvas.setTextSize(1);
+    int w = canvas.width();
+    int h = canvas.height();
+
+    // Level 1: Page navigation (Large font)
+    if (_menu_level == MenuLevel::PAGE_SELECT) {
+        canvas.setFont(&fonts::FreeSansBold18pt7b);
+        canvas.setTextDatum(middle_center);
+        canvas.setTextColor(highlight_color, bg_color);
+        
+        const char* page_titles[] = {"UNITS", "RPM COLOR", "CLOCK", "RESET TRIP"};
+        canvas.drawString(page_titles[static_cast<int>(_current_settings_page)], w / 2, h / 2 - 20);
+
+        canvas.setFont(&fonts::FreeSans9pt7b);
+        canvas.setTextColor(text_color, bg_color);
+        canvas.drawString("Press TRIP to configure", w / 2, h - 80);
+        canvas.drawString("+ / - to change page", w / 2, h - 60);
+        return; 
+    }
+
+    // Levels 2 and 3: Inside a specific page
+    const char* page_titles[] = {"UNITS SETUP", "RPM COLOR SETUP", "CLOCK SETUP", "RESET TRIP"};
+    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.setTextDatum(middle_center);
+    canvas.setTextColor(highlight_color, bg_color);
+    canvas.drawString(page_titles[static_cast<int>(_current_settings_page)], w / 2, 25);
+    canvas.drawFastHLine(10, 45, w - 20, highlight_color);
+
+    // Special screen for clock configuration
+    if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
+        canvas.setTextDatum(middle_center);
+        canvas.setFont(&fonts::FreeSansBold24pt7b);
+        
+        char time_buf[16];
+        snprintf(time_buf, sizeof(time_buf), "%02d:%02d", _edit_hour, _edit_minute);
+        canvas.drawString(time_buf, w/2, h/2);
+
+        canvas.setFont(nullptr);
+        canvas.setTextColor(highlight_color);
+        if (_clock_edit_step == ClockEditStep::HOURS) {
+            canvas.drawString("^^", w/2 - 35, h/2 + 30);
+        } else {
+            canvas.drawString("^^", w/2 + 35, h/2 + 30);
+        }
+        return; 
+    }
+
+    canvas.setFont(&fonts::FreeSans12pt7b);
+    int y_opt1 = 120;
+    
+    // Extra spacing for readability
+    int y_opt2 = 180; 
+
+    char opt1_text[32], opt2_text[32];
+    char val1_text[16], val2_text[16];
+
+    if (_current_settings_page == SettingsPage::UNIT_SELECTION) {
+        snprintf(opt1_text, sizeof(opt1_text), "System");
+        opt2_text[0] = '\0';
+        snprintf(val1_text, sizeof(val1_text), _settings.unit_system == MeasurementSystem::METRIC ? "METRIC" : "IMPERIAL");
+        val2_text[0] = '\0';
+    }
+    else if (_current_settings_page == SettingsPage::DYNAMIC_RPM_COLOR) {
+        const char* color_names[] = {"BLUE", "CYAN", "GREEN", "YELLOW", "RED", "WHITE"};
+        snprintf(opt1_text, sizeof(opt1_text), "Dynamic");
+        snprintf(opt2_text, sizeof(opt2_text), "Theme");
+        snprintf(val1_text, sizeof(val1_text), _settings.dynamic_rpm_color ? "ON" : "OFF");
+        snprintf(val2_text, sizeof(val2_text), color_names[static_cast<int>(_settings.modern_theme_color)]);
+    }
+    else if (_current_settings_page == SettingsPage::RESET_TRIP) {
+        canvas.setTextDatum(middle_center);
+        canvas.drawString("Are you sure?", w / 2, 90);
+        
+        snprintf(opt1_text, sizeof(opt1_text), "Cancel");
+        snprintf(opt2_text, sizeof(opt2_text), "Clear Data");
+        snprintf(val1_text, sizeof(val1_text), "NO");
+        snprintf(val2_text, sizeof(val2_text), "YES");
+    }
+
+    char draw_buf[32];
+
+    if (_current_sub_option == 0) canvas.setTextColor(highlight_color, bg_color);
+    else canvas.setTextColor(text_color, bg_color);
+    
+    canvas.setTextDatum(middle_left);
+    canvas.drawString(opt1_text, 40, y_opt1);
+    canvas.setTextDatum(middle_right);
+    
+    if (_menu_level == MenuLevel::EDIT_VALUE && _current_sub_option == 0) {
+        snprintf(draw_buf, sizeof(draw_buf), "< %s >", val1_text);
+        canvas.drawString(draw_buf, w - 20, y_opt1);
+    } else {
+        canvas.drawString(val1_text, w - 30, y_opt1);
+    }
+
+    if (opt2_text[0] != '\0') {
+        if (_current_sub_option == 1) canvas.setTextColor(highlight_color, bg_color);
+        else canvas.setTextColor(text_color, bg_color);
+
+        canvas.setTextDatum(middle_left);
+        canvas.drawString(opt2_text, 40, y_opt2);
+        canvas.setTextDatum(middle_right);
+        
+        if (_menu_level == MenuLevel::EDIT_VALUE && _current_sub_option == 1) {
+            snprintf(draw_buf, sizeof(draw_buf), "< %s >", val2_text);
+            canvas.drawString(draw_buf, w - 20, y_opt2);
+        } else {
+            canvas.drawString(val2_text, w - 30, y_opt2);
+        }
+    }
+
+    // Draw cursor
+    canvas.setTextColor(highlight_color, bg_color);
+    canvas.setTextDatum(middle_left);
+    if (_current_sub_option == 0) canvas.drawString(">", 20, y_opt1);
+    else canvas.drawString(">", 20, y_opt2);
 }
 
 void ScreenHandler::setShutdownState(bool active, bool success) {
     _is_shutting_down = active;
     _save_success = success;
+}
+
+void ScreenHandler::handleButtonMenu() {
+    if (_ui_mode == UIMode::DASHBOARD) {
+        _ui_mode = UIMode::SETTINGS;
+        _menu_level = MenuLevel::PAGE_SELECT;
+        _current_settings_page = SettingsPage::UNIT_SELECTION;
+    } else {
+        // Go back one level or exit
+        if (_menu_level == MenuLevel::EDIT_VALUE) {
+            if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
+                _menu_level = MenuLevel::PAGE_SELECT;
+                _clock_edit_step = ClockEditStep::NONE;
+            } else {
+                _menu_level = MenuLevel::SUB_SELECT;
+            }
+        } else if (_menu_level == MenuLevel::SUB_SELECT) {
+            _menu_level = MenuLevel::PAGE_SELECT;
+        } else if (_menu_level == MenuLevel::PAGE_SELECT) {
+            _ui_mode = UIMode::DASHBOARD;
+        }
+    }
+}
+
+void ScreenHandler::handleButtonTrip() {
+    if (_ui_mode == UIMode::DASHBOARD) {
+        nextPage();
+        return;
+    }
+
+    if (_menu_level == MenuLevel::PAGE_SELECT) {
+        if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
+            // Clock configuration bypasses sub-selection and goes directly to hours edit
+            _menu_level = MenuLevel::EDIT_VALUE;
+            _clock_edit_step = ClockEditStep::HOURS;
+            
+            // Load current time into temporary variables
+            time_t now; struct tm timeinfo;
+            time(&now); localtime_r(&now, &timeinfo);
+            _edit_hour = timeinfo.tm_hour;
+            _edit_minute = timeinfo.tm_min;
+        } else {
+            _menu_level = MenuLevel::SUB_SELECT;
+            _current_sub_option = 0;
+        }
+    } 
+    else if (_menu_level == MenuLevel::SUB_SELECT) {
+        if (_current_settings_page == SettingsPage::RESET_TRIP) {
+            // Execute Reset directly
+            if (_current_sub_option == 1) { 
+                if (_on_trip_reset_cb) { 
+                    _on_trip_reset_cb(); 
+                }
+            }
+            // Return to main menu regardless of choice
+            _menu_level = MenuLevel::PAGE_SELECT;
+            _current_sub_option = 0;
+        } else {
+            _menu_level = MenuLevel::EDIT_VALUE;
+        }
+    }
+    else if (_menu_level == MenuLevel::EDIT_VALUE) {
+        if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
+            if (_clock_edit_step == ClockEditStep::HOURS) {
+                _clock_edit_step = ClockEditStep::MINUTES;
+            } else if (_clock_edit_step == ClockEditStep::MINUTES) {
+                // Save system time and exit
+                time_t now;
+                struct tm t;
+                time(&now);
+                localtime_r(&now, &t);
+                t.tm_hour = _edit_hour;
+                t.tm_min = _edit_minute;
+                struct timeval tv = { mktime(&t), 0 };
+                settimeofday(&tv, NULL);
+                
+                _clock_edit_step = ClockEditStep::NONE;
+                _menu_level = MenuLevel::PAGE_SELECT; 
+            }
+        } else {
+            _menu_level = MenuLevel::SUB_SELECT;
+        }
+    }
+}
+
+void ScreenHandler::handleButtonPlus() {
+    if (_ui_mode == UIMode::DASHBOARD) {  return; }
+
+    if (_menu_level == MenuLevel::PAGE_SELECT) {
+        int next = (static_cast<int>(_current_settings_page) + 1) % static_cast<int>(SettingsPage::MAX_PAGES);
+        _current_settings_page = static_cast<SettingsPage>(next);
+    } 
+    else if (_menu_level == MenuLevel::SUB_SELECT) {
+        if (_current_settings_page == SettingsPage::UNIT_SELECTION) {
+            _current_sub_option = 0; 
+        } else {
+            _current_sub_option = (_current_sub_option + 1) % 2;
+        }
+    }
+    else if (_menu_level == MenuLevel::EDIT_VALUE) {
+        if (_current_settings_page == SettingsPage::UNIT_SELECTION) {
+            if (_current_sub_option == 0) {
+                _settings.unit_system = (_settings.unit_system == MeasurementSystem::METRIC) ? MeasurementSystem::IMPERIAL : MeasurementSystem::METRIC;
+            }
+        } else if (_current_settings_page == SettingsPage::DYNAMIC_RPM_COLOR) {
+            if (_current_sub_option == 0) {
+                _settings.dynamic_rpm_color = !_settings.dynamic_rpm_color;
+            } else {
+                int next_col = (static_cast<int>(_settings.modern_theme_color) + 1) % static_cast<int>(ModernThemeColor::MAX_COLORS);
+                _settings.modern_theme_color = static_cast<ModernThemeColor>(next_col);
+            }
+        } else if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
+            if (_clock_edit_step == ClockEditStep::HOURS) {
+                _edit_hour = (_edit_hour + 1) % 24;
+            } else if (_clock_edit_step == ClockEditStep::MINUTES) {
+                _edit_minute = (_edit_minute + 1) % 60;
+            }
+        }
+    }
+}
+
+void ScreenHandler::handleButtonMinus() {
+    if (_ui_mode == UIMode::DASHBOARD) { return; }
+
+    if (_menu_level == MenuLevel::PAGE_SELECT) {
+        int prev = (static_cast<int>(_current_settings_page) - 1 + static_cast<int>(SettingsPage::MAX_PAGES)) % static_cast<int>(SettingsPage::MAX_PAGES);
+        _current_settings_page = static_cast<SettingsPage>(prev);
+    } 
+    else if (_menu_level == MenuLevel::SUB_SELECT) {
+        if (_current_settings_page == SettingsPage::UNIT_SELECTION) {
+            _current_sub_option = 0;
+        } else {
+            _current_sub_option = (_current_sub_option - 1 + 2) % 2;
+        }
+    }
+    else if (_menu_level == MenuLevel::EDIT_VALUE) {
+        // Binary options toggle the same way as the Plus button
+        // Clock and color options rotate backwards
+        if (_current_settings_page == SettingsPage::DYNAMIC_RPM_COLOR && _current_sub_option == 1) {
+            int prev_col = (static_cast<int>(_settings.modern_theme_color) - 1 + static_cast<int>(ModernThemeColor::MAX_COLORS)) % static_cast<int>(ModernThemeColor::MAX_COLORS);
+            _settings.modern_theme_color = static_cast<ModernThemeColor>(prev_col);
+        } else if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
+            if (_clock_edit_step == ClockEditStep::HOURS) {
+                _edit_hour = (_edit_hour - 1 + 24) % 24;
+            } else if (_clock_edit_step == ClockEditStep::MINUTES) {
+                _edit_minute = (_edit_minute - 1 + 60) % 60;
+            }
+        } else {
+            // Reuse logic for binary toggles
+            handleButtonPlus(); 
+        }
+    }
+}
+
+void ScreenHandler::handleComboTripPlus() {
+    if (_ui_mode == UIMode::DASHBOARD) {
+        toggleStyle();
+    }
+}
+
+uint16_t ScreenHandler::getThemeColorValue(ModernThemeColor color) {
+    switch (color) {
+        case ModernThemeColor::BLUE:   return TFT_BLUE;
+        case ModernThemeColor::CYAN:   return TFT_CYAN;
+        case ModernThemeColor::GREEN:  return TFT_GREEN;
+        case ModernThemeColor::YELLOW: return TFT_YELLOW;
+        case ModernThemeColor::RED:    return TFT_RED;
+        case ModernThemeColor::WHITE:  return TFT_WHITE;
+        default: return TFT_CYAN;
+    }
 }

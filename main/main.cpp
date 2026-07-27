@@ -1,3 +1,13 @@
+/**
+ * @file main.cpp
+ * @brief Main entry point for the Digital Instrument Cluster firmware.
+ * 
+ * This module orchestrates a dual-core FreeRTOS architecture. Core 0 is dedicated 
+ * to deterministic, real-time CAN bus reception and parsing, while Core 1 handles 
+ * the graphical user interface, state management, and non-volatile storage operations.
+ * It also includes hardware interrupt handling for graceful shutdown upon ignition cutoff.
+ */
+
 #include <stdio.h>
 #include <sys/time.h>
 #include <cstring>
@@ -12,6 +22,8 @@
 #include "ScreenHandler.h"
 #include "FiatCanParser.h"
 #include "StorageManager.h"
+#include "RtcManager.h"
+#include "TripComputer.h"
 
 /**
  * @def ENABLE_USB_SNIFFER
@@ -22,105 +34,46 @@
 ScreenHandler screen;
 CanManager can(GPIO_NUM_26, GPIO_NUM_25);
 StorageManager storage(I2C_NUM_0, GPIO_NUM_21, GPIO_NUM_22);
+RtcManager rtc;
 
 SemaphoreHandle_t dataMutex;
 
-uint32_t extra_km = 0;             
+DashboardData my_data;
+DashboardData initial_data;
 volatile bool shutdown_flag = false; 
 
 /**
  * @brief Thread-safe container for telemetry data shared between cores.
  */
 struct SharedData {
-    uint32_t total_km = 0;
+    TripComputer trip;
+    
     FiatCAN::EngineData engine = {};
+    uint16_t speed_kmh = 0;
+    uint8_t fuel_level = 0;
 } shared_data;
 
 /**
  * @brief ISR handler triggered by the ignition cutoff sensor (GPIO 34).
- * 
- * @param arg Unused ISR parameter.
  */
 static void IRAM_ATTR ignition_isr_handler(void* arg) {
     shutdown_flag = true;
 }
 
 /**
- * @brief Converts a Binary-Coded Decimal (BCD) byte to its decimal equivalent.
- * 
- * @param val BCD formatted byte.
- * @return uint8_t Decimal equivalent.
- */
-static uint8_t bcd2dec(uint8_t val) {
-    return ((val >> 4) * 10) + (val & 0x0F);
-}
-
-/**
- * @brief Reads time from an external DS3231 RTC module and synchronizes the ESP32's internal system clock.
- */
-void syncRTCWithDS3231() {
-    i2c_master_bus_handle_t bus = storage.getBusHandle();
-    if (bus == nullptr) {
-#if !ENABLE_USB_SNIFFER
-        printf("Error: I2C Bus not initialized. Cannot read RTC.\n");
-#endif
-        return;
-    }
-
-    i2c_device_config_t rtc_config = {};
-    rtc_config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
-    rtc_config.device_address = 0x68;
-    rtc_config.scl_speed_hz = 100000;
-    
-    i2c_master_dev_handle_t rtc_handle;
-    if (i2c_master_bus_add_device(bus, &rtc_config, &rtc_handle) != ESP_OK) return;
-
-    uint8_t reg = 0x00;
-    uint8_t data[7];
-    esp_err_t ret = i2c_master_transmit_receive(rtc_handle, &reg, 1, data, 7, pdMS_TO_TICKS(100));
-    
-    i2c_master_bus_rm_device(rtc_handle);
-
-    if (ret == ESP_OK) {
-        struct tm tm;
-        memset(&tm, 0, sizeof(struct tm));
-        
-        tm.tm_sec  = bcd2dec(data[0] & 0x7F);
-        tm.tm_min  = bcd2dec(data[1]);
-        tm.tm_hour = bcd2dec(data[2] & 0x3F);
-        tm.tm_mday = bcd2dec(data[4]);
-        tm.tm_mon  = bcd2dec(data[5] & 0x1F) - 1;
-        tm.tm_year = bcd2dec(data[6]) + 100; 
-        
-        tm.tm_isdst = -1;
-
-        time_t t = mktime(&tm);
-        struct timeval tv = { .tv_sec = t, .tv_usec = 0 };
-        settimeofday(&tv, NULL); 
-#if !ENABLE_USB_SNIFFER
-        printf("RTC synchronized successfully.\n");
-#endif
-    } else {
-#if !ENABLE_USB_SNIFFER
-        printf("Error reading data from RTC.\n");
-#endif
-    }
-}
-
-/**
  * @brief Core 0 Task: Real-time CAN Bus engine.
- * Handles packet reception, structural decoding, and thread-safe data publishing.
- * 
- * @param pvParameters FreeRTOS task parameters (unused).
  */
 void task_can_core0(void *pvParameters) {
     CanFrameWrapper rx_msg;
     uint32_t last_missed_count = 0;
 
+    TickType_t last_calc_time = xTaskGetTickCount();
+    
     while (1) {
-        if (can.receiveMessage(rx_msg, 10)) {
+        while (can.receiveMessage(rx_msg, 10)) {
             
             #if ENABLE_USB_SNIFFER
+            // Format CAN frames for SLCAN compatible tools (e.g., SavvyCAN) over serial
             if (rx_msg.frame.header.rtr) {
                 if (rx_msg.frame.header.ide) {
                     printf("R%08lX%d", (unsigned long)rx_msg.frame.header.id, rx_msg.frame.header.dlc);
@@ -144,35 +97,58 @@ void task_can_core0(void *pvParameters) {
             uint8_t dlc = rx_msg.frame.header.dlc;
             uint8_t* payload = rx_msg.payload;
 
+            // Short timeout ensures the CAN reception is never blocked for long by the UI core
             if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(2)) == pdTRUE) {
-                if (id == FiatCAN::ID_CLUSTER_KM) {
-                    uint32_t raw_km = FiatCAN::parseClusterKM(payload, dlc);
-                    shared_data.total_km = raw_km + extra_km; 
-                } else if (id == FiatCAN::ID_ENGINE_DATA) {
+                if (id == FiatCAN::ID_ENGINE_DATA) {
                     shared_data.engine = FiatCAN::parseEngineData(payload, dlc);
+                } 
+                
+                /* TODO: Reverse engineer and implement parsers for the following missing CAN IDs:
+                   - Vehicle Speed (currently mocked/missing)
+                   - Fuel Level (raw sensor data)*/
+                /*
+                else if (id == ID_SPEED) {
+                    shared_data.speed_kmh = (payload[2] << 8) | payload[3]; 
                 }
+                else if (id == ID_FUEL_LEVEL) {
+                    shared_data.fuel_level = payload[0]; 
+                }
+                */
                 xSemaphoreGive(dataMutex);
             }
+        }
+
+        TickType_t current_time = xTaskGetTickCount();
+        TickType_t dt_ticks = current_time - last_calc_time;
+        
+        if (dt_ticks > 0) {
+            uint32_t dt_ms = dt_ticks * portTICK_PERIOD_MS;
+            if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(2)) == pdTRUE) {
+                shared_data.trip.update(dt_ms, shared_data.speed_kmh, shared_data.engine.consumption_lh, shared_data.fuel_level);
+                xSemaphoreGive(dataMutex);
+            }
+            last_calc_time = current_time;
         }
 
         uint32_t current_missed = can.getMissedMessagesCount();
         if (current_missed != last_missed_count) {
             last_missed_count = current_missed;
         }
+        
+        // Yield to the scheduler to prevent Task Watchdog triggers on Core 0
         vTaskDelay(1);
     }
 }
 
 /**
  * @brief Core 1 Task: Visual Engine and Non-blocking Shutdown Evaluation.
- * Handles TFT rendering, style cycling, and graceful degradation during ignition cutoff.
- * 
- * @param pvParameters FreeRTOS task parameters (unused).
  */
 void task_gui_core1(void *pvParameters) {
     TickType_t last_cycle_time = xTaskGetTickCount();
-    const TickType_t cycle_interval = pdMS_TO_TICKS(5000);
-    uint8_t cycle_state = 0;
+    const TickType_t cycle_interval = pdMS_TO_TICKS(3000);
+
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(40);
 
     SharedData local_snapshot;
 
@@ -180,68 +156,119 @@ void task_gui_core1(void *pvParameters) {
     TickType_t shutdown_eval_start = 0;
 
     while (1) {
-        // 1. Non-blocking Ignition Cutoff Evaluation
+        // Snapshot the shared data to minimize mutex hold time and prevent blocking the CAN core
+        if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+            local_snapshot = shared_data;
+            xSemaphoreGive(dataMutex);
+        }
+
         if (shutdown_flag) {
             if (!evaluating_shutdown) {
                 evaluating_shutdown = true;
                 shutdown_eval_start = xTaskGetTickCount();
             }
 
+            // Debounce the ignition signal. If voltage returns, abort shutdown sequence
             if (gpio_get_level(GPIO_NUM_34) == 1) {
                 shutdown_flag = false;
                 evaluating_shutdown = false;
             } else {
+                // Require a stable 5-second power loss before committing to EEPROM write to avoid corruption during voltage spikes
                 if ((xTaskGetTickCount() - shutdown_eval_start) >= pdMS_TO_TICKS(5000)) {
-                    bool save_ok = storage.saveExtraKM(extra_km);
-                    screen.setShutdownState(true, save_ok);
+                    my_data.total_km = local_snapshot.trip.getTotalKm();
+                    my_data.fractional_km = local_snapshot.trip.getFractionalKm();
+                    my_data.trip_km = local_snapshot.trip.getTripKm();
+                    my_data.trip_time = local_snapshot.trip.getTripTimeSec();
+                    my_data.trip_fuel_consumed = local_snapshot.trip.getTripFuelConsumed();
+                    my_data.recent_avg_l_100km = local_snapshot.trip.getRecentAvg();
+                    my_data.settings = screen.getSettings();
+                    if (memcmp(&my_data, &initial_data, sizeof(my_data)) != 0) {
+                        bool save_ok = storage.saveData(my_data);
+                        screen.setShutdownState(true, save_ok);
+                    } else {
+                        screen.setShutdownState(true, true);
+                    }
                     screen.render();
+                    // Allow the TFT enough time to refresh and show the saving status before deep sleep
                     vTaskDelay(pdMS_TO_TICKS(2000));
-                    
                     esp_deep_sleep_start();
                 }
             }
         }
 
-        // 2. Auto-carousel Execution
+        /* TODO: Implement hardware button polling/interrupts (Trip, Menu, Plus, Minus).
+           Once physical GPIO buttons are wired and debounced, remove this automated 
+           navigation block and trigger the screen.handleButtonX() functions via ISR or polling.*/
+        
+        // --- TEMPORAL MOCKED UI NAVIGATION ---
         if ((xTaskGetTickCount() - last_cycle_time) >= cycle_interval) {
-            cycle_state = (cycle_state + 1) % 4;
             if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-                switch (cycle_state) {
-                    case 0:
-                        screen.setStyle(DisplayStyle::CLASSIC_AMBER);
-                        screen.setPage(DisplayPage::MAIN_DASH);
-                        break;
-                    case 1:
-                        screen.setStyle(DisplayStyle::CLASSIC_AMBER);
-                        screen.setPage(DisplayPage::TRIP_INFO);
-                        break;
-                    case 2:
-                        screen.setStyle(DisplayStyle::MODERN_DARK);
-                        screen.setPage(DisplayPage::MAIN_DASH);
-                        break;
-                    case 3:
-                        screen.setStyle(DisplayStyle::MODERN_DARK);
-                        screen.setPage(DisplayPage::TRIP_INFO);
-                        break;
+                
+                static int dashboard_step = 0;
+                static int settings_step = 0;
+                static bool in_settings = false;
+
+                if (!in_settings) {
+                    if (dashboard_step < static_cast<int>(DisplayPage::MAX_PAGES) - 1) {
+                        screen.handleButtonTrip(); 
+                        dashboard_step++;
+                    } else {
+                        screen.handleButtonMenu(); 
+                        in_settings = true;
+                        dashboard_step = 0;
+                        settings_step = 0;
+                    }
+                } else {
+                    switch (settings_step) {
+                        case 0:
+                            screen.handleButtonTrip(); 
+                            settings_step++;
+                            break;
+                        case 1:
+                            screen.handleButtonMenu(); 
+                            settings_step++;
+                            break;
+                        case 2:
+                        case 3:
+                        case 4:
+                            screen.handleButtonPlus(); 
+                            settings_step++;
+                            break;
+                        case 5:
+                            screen.handleButtonMenu(); 
+                            in_settings = false;
+                            settings_step = 0;
+                            
+                            screen.handleComboTripPlus();
+                            break;
+                        default:
+                            settings_step = 0;
+                            break;
+                    }
                 }
+
                 xSemaphoreGive(dataMutex);
             }
             last_cycle_time = xTaskGetTickCount();
         }
 
-        // 3. Thread-safe Data Copy and Render
-        if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-            local_snapshot = shared_data;
-            xSemaphoreGive(dataMutex);
-        }
-
-        screen.updateKM(local_snapshot.total_km);
+        screen.updateKM(local_snapshot.trip.getTotalKm());
         screen.updateEngine(local_snapshot.engine);
+        screen.updateSpeed(local_snapshot.speed_kmh);
+        screen.updateAutonomy(local_snapshot.trip.getAutonomyKm());
         
+        screen.updateTripData(
+            local_snapshot.trip.getTripKm(), 
+            local_snapshot.trip.getTripAvgL100km(), 
+            local_snapshot.trip.getTripAvgKmh(), 
+            local_snapshot.trip.getTripTimeSec()
+        );
+        
+        screen.updateFuel(local_snapshot.fuel_level);
         screen.render();
 
-        // 4. Mandatory delay to feed the watchdog (~20 FPS)
-        vTaskDelay(pdMS_TO_TICKS(40)); 
+        // Enforce a strict ~25 FPS frame rate (40ms) to ensure smooth animations and feed the task watchdog
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
     }
 }
 
@@ -249,6 +276,7 @@ void task_gui_core1(void *pvParameters) {
  * @brief Application entry point. Bootstraps hardware, synchronization primitives, and FreeRTOS tasks.
  */
 extern "C" void app_main(void) {
+    // Disable stdout buffering. Crucial for real-time serial output when ENABLE_USB_SNIFFER is active
     setvbuf(stdout, NULL, _IONBF, 0);
 
     dataMutex = xSemaphoreCreateMutex();
@@ -259,7 +287,7 @@ extern "C" void app_main(void) {
         return;
     }
 
-    // Configure GPIO 34 (Ignition Key Sensor)
+    // Configure ignition sensing on GPIO 34 (Active-low on power loss)
     gpio_config_t io_conf = {};
     io_conf.intr_type = GPIO_INTR_NEGEDGE; 
     io_conf.pin_bit_mask = (1ULL << GPIO_NUM_34);
@@ -269,23 +297,67 @@ extern "C" void app_main(void) {
 
     gpio_install_isr_service(0);
     gpio_isr_handler_add(GPIO_NUM_34, ignition_isr_handler, NULL);
+    
+    // Ensure the processor wakes up when the ignition is turned back on
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_34, 1);
 
-    // Initialize EEPROM and RTC
     if (storage.begin()) {
-        syncRTCWithDS3231(); 
-        if (!storage.loadExtraKM(extra_km)) {
-            extra_km = 15;
-            storage.saveExtraKM(extra_km); 
+        rtc.begin(storage.getBusHandle());
+        rtc.syncSystemTime();
+        
+        if (storage.loadData(my_data)) {
+            initial_data = my_data;
+            shared_data.trip.init(my_data.total_km, my_data.fractional_km, my_data.trip_km, my_data.trip_time, my_data.trip_fuel_consumed, my_data.recent_avg_l_100km);
+            screen.applySettings(my_data.settings);
+        } else {
+            // First boot or EEPROM corruption: initialize with safe defaults and show warning UI
+            my_data.magic = 0xFA170001;
+            my_data.total_km = 402000;
+            my_data.fractional_km = 0.0f;
+            my_data.trip_km = 0.0f;
+            my_data.trip_time = 0;
+            my_data.trip_fuel_consumed = 0.0f;
+            my_data.recent_avg_l_100km = 0.0f;
+            my_data.settings = screen.getSettings();
+            
+            storage.saveData(my_data); 
+            initial_data = my_data;
+            shared_data.trip.init(402000, 0.0f, 0.0f, 0, 0.0f, 0.0f);
+            screen.showEepromWarning();
         }
     }
 
     screen.begin();
+
+    screen.setOnTripResetCallback([]() {
+        if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE) {
+            shared_data.trip.resetTrip();
+            xSemaphoreGive(dataMutex);
+        }
+
+        my_data.trip_km = 0.0f;
+        my_data.trip_time = 0;
+        my_data.trip_fuel_consumed = 0.0f;
+
+        // Immediate EEPROM write ensures trip reset isn't lost if power is cut shortly after
+        if (storage.saveData(my_data)) {
+            initial_data = my_data; 
+        } 
+    });
+
+    screen.setOnClockSetCallback([](uint8_t hour, uint8_t minute) {
+        rtc.setTime(hour, minute);
+    });
+
+    // CAN bus is critical. If it fails to initialize, reboot the system to attempt recovery
     if (!can.begin()) {
         vTaskDelay(pdMS_TO_TICKS(3000));
         esp_restart();
     }
 
+    // Assign tasks to specific cores. 
+    // Core 0 handles real-time CAN and Wi-Fi/BT stacks (if used later).
+    // Core 1 handles the heavy lifting of the TFT display to prevent interrupting CAN frames.
     xTaskCreatePinnedToCore(task_can_core0, "Task_CAN", 8192, NULL, 5, NULL, 0);
     xTaskCreatePinnedToCore(task_gui_core1, "Task_GUI", 8192, NULL, 2, NULL, 1);
 }

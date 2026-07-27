@@ -10,8 +10,8 @@
  * @brief Wrapper structure to store the TWAI frame and its payload in the FreeRTOS queue.
  */
 struct CanFrameWrapper {
-    twai_frame_t frame;
-    uint8_t payload[8]; // Note: Increase to 64 bytes if migrating to CAN FD.
+    twai_frame_t frame;     /**< The TWAI frame containing ID, DLC, and metadata flags */
+    uint8_t payload[8];     /**< Payload data buffer (Note: Increase to 64 bytes if migrating to CAN FD) */
 };
 
 /**
@@ -19,7 +19,17 @@ struct CanFrameWrapper {
  */
 class CanManager {
 public:
+    /**
+     * @brief Constructs the CanManager instance.
+     * 
+     * @param txPin GPIO pin number to be used for TWAI TX (Transmit).
+     * @param rxPin GPIO pin number to be used for TWAI RX (Receive).
+     */
     CanManager(gpio_num_t txPin, gpio_num_t rxPin);
+
+    /**
+     * @brief Destructor. Ensures the TWAI node is stopped and resources are freed.
+     */
     ~CanManager();
 
     /**
@@ -49,16 +59,21 @@ public:
     uint32_t getMissedMessagesCount();
 
 private:
-    gpio_num_t _txPin;
-    gpio_num_t _rxPin;
-    bool _isInitialized;
+    gpio_num_t _txPin;                  /**< GPIO pin assigned for transmission */
+    gpio_num_t _rxPin;                  /**< GPIO pin assigned for reception */
+    bool _isInitialized;                /**< Flag indicating if the TWAI driver is currently running */
     
-    twai_node_handle_t _node;
-    QueueHandle_t _rxQueue;
-    uint32_t _missedMessagesQueue;
+    twai_node_handle_t _node;           /**< Handle for the initialized TWAI node */
+    QueueHandle_t _rxQueue;             /**< FreeRTOS queue to safely pass messages from ISR to tasks */
+    uint32_t _missedMessagesQueue;      /**< Counter for messages lost because the RX queue was full */
 
     /**
      * @brief ISR callback triggered upon successful CAN frame reception.
+     * 
+     * @param handle The handle of the TWAI node that generated the event.
+     * @param edata Pointer to the event data structure containing frame details.
+     * @param user_ctx Pointer to the user context (typically the 'this' instance).
+     * @return true if a higher priority task was woken up by the queue send, false otherwise.
      */
     static bool onRxDoneCallback(twai_node_handle_t handle, const twai_rx_done_event_data_t *edata, void *user_ctx);
 };
