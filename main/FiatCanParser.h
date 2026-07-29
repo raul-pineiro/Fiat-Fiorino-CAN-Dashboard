@@ -9,6 +9,9 @@ namespace FiatCAN {
     ///@{
     constexpr uint32_t ID_ENGINE_DATA = 0x04214001;
     constexpr uint32_t ID_CLUSTER_KM  = 0x0C014003;
+    constexpr uint32_t ID_SPEED = 0x04394000;
+    constexpr uint32_t ID_FUEL_LEVEL  = 0x06214000;
+    constexpr uint32_t ID_AUTONOMY = 0x0C014003;
     ///@}
 
     /**
@@ -30,7 +33,6 @@ namespace FiatCAN {
         float injection_mm3;
         float consumption_lh;
         int temp;
-        uint8_t fuel;
     };
 
     /**
@@ -55,7 +57,7 @@ namespace FiatCAN {
      * @return Populated EngineData structure.
      */
     inline EngineData parseEngineData(const uint8_t* payload, uint8_t dlc) {
-        EngineData data = {0, 0.0f, 0.0f, 0, 0};
+        EngineData data = {0, 0.0f, 0.0f, 0};
         
         if (dlc >= 7) {
             data.rpm = payload[6] * 32;
@@ -67,7 +69,6 @@ namespace FiatCAN {
             data.consumption_lh = (raw_iq * data.rpm * 1.2f) / 1000000.0f; 
             
             data.temp = payload[3] - 40;
-            data.fuel = payload[3];
         }
         
         return data;
@@ -91,5 +92,48 @@ namespace FiatCAN {
             }
         }
         return TRIP_IDLE;
+    }
+
+    /**
+     * @brief Decodes the reference speed from the instrument cluster.
+     * 
+     * @param payload Raw CAN frame data payload.
+     * @param dlc Data Length Code (must be >= 2).
+     * @return Speed in km/h, or 0.0f if payload is too short.
+     */
+    inline float parseSpeed(const uint8_t* payload, uint8_t dlc) {
+        if (dlc >= 2) {
+            uint16_t raw_val = (payload[0] << 8) | payload[1];
+            return raw_val * 0.0625f; 
+        }
+        return 0.0f;
+    }
+
+    /**
+     * @brief Decodes the fuel level percentage.
+     * 
+     * @param payload Raw CAN frame data payload.
+     * @param dlc Data Length Code (must be >= 6 to read byte 5).
+     * @return Fuel level as percentage (0-100), or 255 if error.
+     */
+    inline uint8_t parseFuelLevel(const uint8_t* payload, uint8_t dlc) {
+        if (dlc >= 6) {
+            return payload[5];
+        }
+        return 255;
+    }
+
+    /**
+     * @brief Decodes the autonomy information from the CAN frame.
+     * 
+     * @param payload Raw CAN frame data payload.
+     * @param dlc Data Length Code (must be >= 6).
+     * @return Autonomy value, or 0xFFFF if error.
+     */
+    inline uint16_t parseAutonomy(const uint8_t* payload, uint8_t dlc) {
+        if (dlc < 6 || !(payload[4] & 0x80)) {
+            return 0xFFFF;
+        }
+        return ((payload[4] & 0x03) << 8) | payload[5];
     }
 }

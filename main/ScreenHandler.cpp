@@ -3,6 +3,12 @@
 #include <time.h>
 #include "esp_timer.h"
 
+// Viewport dimensions and offsets for the display
+#define VIEWPORT_WIDTH  290  
+#define VIEWPORT_HEIGHT 170  
+#define VIEWPORT_OFFSET_X 32
+#define VIEWPORT_OFFSET_Y 40
+
 // RPM limit thresholds for color change
 #define RPM_LIMIT_1 3000
 #define RPM_LIMIT_2 3500
@@ -13,7 +19,7 @@ ScreenHandler::LGFX_Config::LGFX_Config() {
         auto cfg = _bus_instance.config();
         cfg.spi_host = SPI3_HOST;
         cfg.spi_mode = 0;
-        cfg.freq_write = 20000000;
+        cfg.freq_write = 40000000;
         cfg.pin_sclk = 18;
         cfg.pin_mosi = 23;
         cfg.pin_miso = -1;
@@ -67,9 +73,12 @@ void ScreenHandler::begin() {
     lcd.init();
     lcd.setBrightness(255);
     lcd.setRotation(1);
+    lcd.fillScreen(TFT_BLACK);
     
     canvas.setColorDepth(16);
-    canvas.createSprite(lcd.width(), lcd.height());
+    if (canvas.createSprite(VIEWPORT_WIDTH, VIEWPORT_HEIGHT) == nullptr) {
+        printf("ERROR: No hay suficiente memoria para el Sprite!\n");
+    }
 }
 
 void ScreenHandler::updateKM(uint32_t km) { 
@@ -80,7 +89,6 @@ void ScreenHandler::updateEngine(const FiatCAN::EngineData& engine) {
     _rpm = engine.rpm;
     _consumption = engine.consumption_lh;
     _temp = engine.temp;
-    _fuel = engine.fuel;
 }
 
 void ScreenHandler::updateTripMode(FiatCAN::TripMode mode) { 
@@ -130,10 +138,24 @@ void ScreenHandler::render() {
         renderMenu();
     }
     drawOverlays();
-    canvas.pushSprite(0, 0);
+    uint16_t current_bg_color = (_settings.display_style == DisplayStyle::CLASSIC_AMBER) 
+                                ? AMBER_RETRO 
+                                : TFT_BLACK;
+    static uint16_t last_bg_color = 0xFFFF;
+    if (current_bg_color != last_bg_color) {
+        lcd.startWrite();
+        lcd.fillRect(VIEWPORT_OFFSET_X - 20, VIEWPORT_OFFSET_Y - 20, VIEWPORT_WIDTH + 40, 20, current_bg_color);
+        lcd.fillRect(VIEWPORT_OFFSET_X - 20, VIEWPORT_OFFSET_Y + VIEWPORT_HEIGHT, VIEWPORT_WIDTH + 40, 20, current_bg_color);
+        lcd.fillRect(VIEWPORT_OFFSET_X - 20, VIEWPORT_OFFSET_Y, 20, VIEWPORT_HEIGHT, current_bg_color);
+        lcd.fillRect(VIEWPORT_OFFSET_X + VIEWPORT_WIDTH, VIEWPORT_OFFSET_Y, 50, VIEWPORT_HEIGHT, current_bg_color);
+        lcd.endWrite();
+
+        last_bg_color = current_bg_color;
+    }
+    canvas.pushSprite(VIEWPORT_OFFSET_X, VIEWPORT_OFFSET_Y);
 }
 
-void ScreenHandler::renderClassicTemplate(const char* sub_text, const char* main_value, bool show_trip, IconType icon, const char* bottom_left_text) {
+void ScreenHandler::renderClassicTemplate(const char* sub_text, const char* main_value, const char* unit_text, bool show_trip, IconType icon, const char* bottom_left_text) {
     canvas.fillSprite(AMBER_RETRO);
     int width = canvas.width();
     int height = canvas.height();
@@ -141,19 +163,34 @@ void ScreenHandler::renderClassicTemplate(const char* sub_text, const char* main
     canvas.setTextColor(TFT_BLACK, AMBER_RETRO);
 
     int value_y = height / 3 - 15;
+
+    canvas.setTextSize(4);
+    int value_width = canvas.textWidth(main_value);
+    
+    canvas.setTextSize(2);
+    int unit_width = (unit_text && unit_text[0] != '\0') ? canvas.textWidth(unit_text) : 0;
+
     canvas.setTextSize(4);
     canvas.setTextDatum(middle_center);
     canvas.drawString(main_value, width / 2, value_y);
+
+    if (unit_width > 0) {
+        int unit_x = (width / 2) + (value_width / 2) + 4;
+        canvas.setTextSize(2);
+        canvas.setTextDatum(bottom_left);
+        canvas.drawString(unit_text, unit_x, value_y + 14);
+    }
 
     if (icon != IconType::NONE) {
         drawPlaceholderIcon(icon, width - 25, value_y, TFT_BLACK);
     }
 
-    int text_y = height / 2 - 10;
+    int text_y = height / 2 + 10;
     canvas.setTextSize(3);
     canvas.setTextDatum(middle_center);
     canvas.drawString(sub_text, width / 2, text_y);
     
+    text_y = height / 2 - 10;
     if (show_trip) {
         canvas.setTextSize(2);
         canvas.setTextDatum(middle_left);
@@ -164,13 +201,14 @@ void ScreenHandler::renderClassicTemplate(const char* sub_text, const char* main
     canvas.drawFastHLine(15, line_y, width - 30, TFT_BLACK);
     
     int bottom_y = line_y + (height - line_y) / 2;
-    canvas.setTextSize(3);
+    canvas.setTextSize(2);
     canvas.setTextDatum(middle_left);
     canvas.drawString(bottom_left_text, 15, bottom_y);
 }
 
 void ScreenHandler::drawPage() {
     char value_buf[32] = {0};
+    char unit_buf[16] = {0};
     char bottom_buf[32] = {0};
 
     const char* sub_text = "";
@@ -181,41 +219,101 @@ void ScreenHandler::drawPage() {
 
     switch (_settings.display_page) {
         case DisplayPage::TOTAL_KM:
-            sub_text = "TOTAL KM";
-            snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_current_km));
+            if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                sub_text = "TOTAL MI";
+                snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_current_km * 0.621371f));
+            } else {
+                sub_text = "TOTAL KM";
+                snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_current_km));
+            }
             break;
 
-        case DisplayPage::AUTONOMY:
+        case DisplayPage::AUTONOMY: {
             sub_text = "AUTONOMY";
             icon = IconType::FUEL;
             
-            if (_autonomy_km > 0) {
+            if (_autonomy_km != 0xFFFF && _autonomy_km > 0) {
                 if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
-                    snprintf(value_buf, sizeof(value_buf), "%u mi", (unsigned int)(_autonomy_km * 0.621371f));
+                    snprintf(value_buf, sizeof(value_buf), "%u", (unsigned int)(_autonomy_km * 0.621371f));
+                    snprintf(unit_buf, sizeof(unit_buf), "mi");
                 } else {
-                    snprintf(value_buf, sizeof(value_buf), "%u km", (unsigned int)(_autonomy_km));
+                    snprintf(value_buf, sizeof(value_buf), "%u", (unsigned int)_autonomy_km);
+                    snprintf(unit_buf, sizeof(unit_buf), "km");
                 }
             } else {
-                snprintf(value_buf, sizeof(value_buf), "--- %s", 
-                         _settings.unit_system == MeasurementSystem::IMPERIAL ? "mi" : "km"); 
+                snprintf(value_buf, sizeof(value_buf), "---");
+                snprintf(unit_buf, sizeof(unit_buf), _settings.unit_system == MeasurementSystem::IMPERIAL ? "mi" : "km");
+            }
+            float liters = (float)_fuel * 0.45f;
+            if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                float gallons = liters / 3.78541f;
+                snprintf(bottom_buf, sizeof(bottom_buf), "%.1f gal (%u%%)", gallons, (unsigned int)_fuel);
+            } else {
+                snprintf(bottom_buf, sizeof(bottom_buf), "%.1fL (%u%%)", liters, (unsigned int)_fuel);
             }
             break;
+        }
 
         case DisplayPage::TRIP_KM:
             sub_text = "DISTANCE";
             show_trip = true;
-            snprintf(value_buf, sizeof(value_buf), "%.1f", static_cast<float>(_trip_km));
+            if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                snprintf(value_buf, sizeof(value_buf), "%.1f", static_cast<float>(_trip_km * 0.621371f));
+                snprintf(unit_buf, sizeof(unit_buf), "mi");
+            } else {
+                snprintf(value_buf, sizeof(value_buf), "%.1f", static_cast<float>(_trip_km));
+                snprintf(unit_buf, sizeof(unit_buf), "km");
+            }
             break;
 
         case DisplayPage::TRIP_L_100KM:
             sub_text = "AVG CONS.";
             show_trip = true;
-            snprintf(value_buf, sizeof(value_buf), "%.1f", _trip_l_100km);
+
+            if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                float trip_mpg = (_trip_l_100km > 0.1f) ? (235.215f / _trip_l_100km) : 99.9f;
+                if (trip_mpg > 99.9f) trip_mpg = 99.9f;
+
+                snprintf(value_buf, sizeof(value_buf), "%.1f", trip_mpg);
+                snprintf(unit_buf, sizeof(unit_buf), "mpg");
+                snprintf(bottom_buf, sizeof(bottom_buf), "%.1f mi", static_cast<float>(_trip_km * 0.621371f));
+            } else {
+                snprintf(value_buf, sizeof(value_buf), "%.1f", _trip_l_100km);
+                snprintf(unit_buf, sizeof(unit_buf), "L/100km");
+                snprintf(bottom_buf, sizeof(bottom_buf), "%.1f km", static_cast<float>(_trip_km));
+            }
             break;
 
         case DisplayPage::INSTANT_L_100KM:
             sub_text = "INST CONS.";
-            snprintf(value_buf, sizeof(value_buf), "%.1f", _consumption);
+
+            if (_speed < 3) {
+                if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                    float gal_h = _consumption / 3.78541f;
+                    snprintf(value_buf, sizeof(value_buf), "%.1f", gal_h);
+                    snprintf(unit_buf, sizeof(unit_buf), "gal/h");
+                } else {
+                    snprintf(value_buf, sizeof(value_buf), "%.1f", _consumption);
+                    snprintf(unit_buf, sizeof(unit_buf), "L/h");
+                }
+            } else {
+                if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                    float mph = _speed * 0.621371f;
+                    float gal_h = _consumption / 3.78541f;
+                    
+                    float mpg = (gal_h > 0.05f) ? (mph / gal_h) : 99.9f; 
+                    if (mpg > 99.9f) mpg = 99.9f;
+
+                    snprintf(value_buf, sizeof(value_buf), "%.1f", mpg);
+                    snprintf(unit_buf, sizeof(unit_buf), "mpg");
+                } else {
+                    float l_100km = (_consumption / _speed) * 100.0f;
+                    if (l_100km > 99.9f) l_100km = 99.9f; 
+
+                    snprintf(value_buf, sizeof(value_buf), "%.1f", l_100km);
+                    snprintf(unit_buf, sizeof(unit_buf), "L/100km");
+                }
+            }
             break;
 
         case DisplayPage::TRIP_AVG_KMH:
@@ -223,10 +321,10 @@ void ScreenHandler::drawPage() {
             show_trip = true; 
             if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
                 snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_trip_avg_kmh * 0.621371f));
-                snprintf(bottom_buf, sizeof(bottom_buf), "mph");
+                snprintf(unit_buf, sizeof(unit_buf), "mph");
             } else {
                 snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_trip_avg_kmh));
-                snprintf(bottom_buf, sizeof(bottom_buf), "km/h");
+                snprintf(unit_buf, sizeof(unit_buf), "km/h");
             }
             break;
 
@@ -249,17 +347,24 @@ void ScreenHandler::drawPage() {
             sub_text = "ENGINE RPM";
             icon = IconType::TEMP;
             snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_rpm));
-            snprintf(bottom_buf, sizeof(bottom_buf), "Temp: %d C", _temp);
+            snprintf(unit_buf ,sizeof(unit_buf), "rpm");
+            
+            if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
+                int temp_f = static_cast<int>((_temp * 9.0f / 5.0f) + 32.0f);
+                snprintf(bottom_buf, sizeof(bottom_buf), "Temp: %d F", temp_f);
+            } else {
+                snprintf(bottom_buf, sizeof(bottom_buf), "Temp: %d C", _temp);
+            }
             break;
 
         case DisplayPage::DIGITAL_SPEED:
             sub_text = "SPEED";
             if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
                 snprintf(value_buf, sizeof(value_buf), "%u", (unsigned int)(_speed * 0.621371f));
-                snprintf(bottom_buf, sizeof(bottom_buf), "mph");
+                snprintf(unit_buf, sizeof(unit_buf), "mph");
             } else {
                 snprintf(value_buf, sizeof(value_buf), "%u", (unsigned int)(_speed));
-                snprintf(bottom_buf, sizeof(bottom_buf), "km/h");
+                snprintf(unit_buf, sizeof(unit_buf), "km/h");
             }
             break;
 
@@ -268,9 +373,9 @@ void ScreenHandler::drawPage() {
     }
 
     if (_settings.display_style == DisplayStyle::CLASSIC_AMBER) {
-        renderClassicTemplate(sub_text, value_buf, show_trip, icon, bottom_buf);
+        renderClassicTemplate(sub_text, value_buf, unit_buf, show_trip, icon, bottom_buf);
     } else {
-        renderModernTemplate(sub_text, value_buf, show_trip, icon, bottom_buf);
+        renderModernTemplate(sub_text, value_buf, unit_buf, show_trip, icon, bottom_buf);
     }
 }
 
@@ -297,7 +402,7 @@ void ScreenHandler::drawPlaceholderIcon(IconType icon, int x, int y, uint16_t co
     canvas.setTextSize(1);
 }
 
-void ScreenHandler::renderModernTemplate(const char* sub_text, const char* main_value, bool show_trip, IconType icon, const char* bottom_left_text) {
+void ScreenHandler::renderModernTemplate(const char* sub_text, const char* main_value, const char* unit_text, bool show_trip, IconType icon, const char* bottom_left_text) {
     canvas.fillSprite(TFT_BLACK); 
     int width = canvas.width();
     int height = canvas.height();
@@ -348,16 +453,34 @@ void ScreenHandler::renderModernTemplate(const char* sub_text, const char* main_
         canvas.drawString("TRIP", 15, height / 4 - 10);
     }
 
+    int value_y = height / 2 + 5;
+
+    canvas.setFont(&fonts::FreeSansBold24pt7b);
+    int value_width = canvas.textWidth(main_value);
+    
+    canvas.setFont(&fonts::FreeSansBold9pt7b);
+    int unit_width = (unit_text && unit_text[0] != '\0') ? canvas.textWidth(unit_text) : 0;
+
     canvas.setFont(&fonts::FreeSansBold24pt7b);
     canvas.setTextColor(TFT_WHITE, TFT_BLACK);
     canvas.setTextDatum(middle_center);
-    int value_y = height / 2 + 5;
     canvas.drawString(main_value, width / 2, value_y);
 
+    int unit_x = (width / 2) + (value_width / 2) + 6;
+
+    if (unit_width > 0) {
+        canvas.setFont(&fonts::FreeSansBold9pt7b);
+        canvas.setTextColor(theme_color, TFT_BLACK);
+        canvas.setTextDatum(bottom_left);
+        canvas.drawString(unit_text, unit_x, value_y + 12);
+    }
+
+    // 3. Posicionamos el icono después de la unidad
     if (icon != IconType::NONE) {
-        int text_width = canvas.textWidth(main_value);
-        int icon_x = (width / 2) + (text_width / 2) + 25; 
-        drawPlaceholderIcon(icon, icon_x, value_y - 5, theme_color); 
+        int icon_x = unit_x + unit_width + 15; 
+        if (icon_x < width - 20) {
+            drawPlaceholderIcon(icon, icon_x, value_y - 5, theme_color); 
+        }
     }
 
     if (bottom_left_text && bottom_left_text[0] != '\0') {
@@ -402,7 +525,7 @@ void ScreenHandler::drawOverlays() {
         int bottom_y = line_y + (height - line_y) / 2;
         
         canvas.setFont(nullptr);
-        canvas.setTextSize(3);
+        canvas.setTextSize(2.5f);
         canvas.setTextColor(TFT_BLACK, AMBER_RETRO);
         canvas.setTextDatum(middle_right);
         canvas.drawString(time_str, width - 15, bottom_y);
@@ -467,8 +590,8 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
 
         canvas.setFont(&fonts::FreeSans9pt7b);
         canvas.setTextColor(text_color, bg_color);
-        canvas.drawString("Press TRIP to configure", w / 2, h - 80);
-        canvas.drawString("+ / - to change page", w / 2, h - 60);
+        canvas.drawString("Press TRIP to configure", w / 2, h - 70);
+        canvas.drawString("+ / - to change page", w / 2, h - 50);
         return; 
     }
 
@@ -477,8 +600,8 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
     canvas.setFont(&fonts::FreeSansBold12pt7b);
     canvas.setTextDatum(middle_center);
     canvas.setTextColor(highlight_color, bg_color);
-    canvas.drawString(page_titles[static_cast<int>(_current_settings_page)], w / 2, 25);
-    canvas.drawFastHLine(10, 45, w - 20, highlight_color);
+    canvas.drawString(page_titles[static_cast<int>(_current_settings_page)], w / 2, (h / 4) - 10);
+    canvas.drawFastHLine(10, (h / 4) + 12, w - 20, highlight_color);
 
     // Special screen for clock configuration
     if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
@@ -500,10 +623,10 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
     }
 
     canvas.setFont(&fonts::FreeSans12pt7b);
-    int y_opt1 = 120;
+    int y_opt1 = (h / 2) + 5;
     
     // Extra spacing for readability
-    int y_opt2 = 180; 
+    int y_opt2 = (h / 2) + 50; 
 
     char opt1_text[32], opt2_text[32];
     char val1_text[16], val2_text[16];
@@ -523,7 +646,7 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
     }
     else if (_current_settings_page == SettingsPage::RESET_TRIP) {
         canvas.setTextDatum(middle_center);
-        canvas.drawString("Are you sure?", w / 2, 90);
+        canvas.drawString("Are you sure?", w / 2, (h / 2) - 15);
         
         snprintf(opt1_text, sizeof(opt1_text), "Cancel");
         snprintf(opt2_text, sizeof(opt2_text), "Clear Data");

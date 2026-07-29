@@ -33,7 +33,7 @@ public:
      * @param fuel_lh Current instantaneous fuel consumption in l/h.
      * @param fuel_level Current fuel tank level (liters or percentage).
      */
-    void update(uint32_t dt_ms, uint16_t speed_kmh, float fuel_lh, uint8_t fuel_level);
+    void update(uint32_t dt_ms, float speed_kmh, float fuel_lh, uint8_t fuel_level);
 
     /**
      * @brief Resets all trip-specific metrics to zero. Retains total odometer values.
@@ -83,12 +83,6 @@ public:
     uint16_t getTripAvgKmh() const;
 
     /**
-     * @brief Retrieves the estimated remaining driving range.
-     * @return Estimated autonomy in kilometers.
-     */
-    uint16_t getAutonomyKm() const;
-
-    /**
      * @brief Retrieves the most recent average fuel consumption.
      * @return Recent average consumption in liters per 100 kilometers (L/100km).
      */
@@ -103,7 +97,6 @@ private:
     float _trip_fuel_consumed;      /**< Total fuel consumed in the current trip in liters */
     float _trip_avg_l_100km;        /**< Calculated average consumption (L/100km) */
     uint16_t _trip_avg_kmh;         /**< Calculated average speed (km/h) */
-    uint16_t _autonomy_km;          /**< Calculated remaining range in kilometers */
     float _recent_avg_l_100km;      /**< Recent average fuel consumption (L/100km) */
 
     float _smoothed_fuel_level;     /**< Smoothed fuel level for more stable autonomy calculations */

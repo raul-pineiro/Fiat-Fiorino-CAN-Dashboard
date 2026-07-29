@@ -78,7 +78,7 @@ private:
     static constexpr uint16_t MEM_ADDR_PRIMARY = 0x0000; /**< Primary memory slot starting address */
     static constexpr uint16_t MEM_ADDR_BACKUP  = 0x0100; /**< Backup memory slot starting address for redundancy */
     
-    static constexpr uint32_t MAGIC_NUMBER = 0xFA170001; /**< Unique signature to verify data integrity upon reading */
+    static constexpr uint32_t MAGIC_NUMBER = 0xFA170002; /**< Unique signature to verify data integrity upon reading */
 
     /**
      * @brief Writes raw byte data to a specific memory address in the EEPROM.
