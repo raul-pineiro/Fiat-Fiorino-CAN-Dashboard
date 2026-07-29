@@ -24,12 +24,19 @@
 #include "StorageManager.h"
 #include "RtcManager.h"
 #include "TripComputer.h"
+#include "ButtonHandler.h"
 
 /**
  * @def ENABLE_USB_SNIFFER
  * @brief Toggles the SLCAN compatible USB sniffer output for development.
  */
 #define ENABLE_USB_SNIFFER 1
+
+/**
+ * @def ENABLE_PERFORMANCE_LOGGING
+ * @brief Toggles performance logging for development.
+ */
+#define ENABLE_PERFORMANCE_LOGGING 0
 
 ScreenHandler screen;
 CanManager can(GPIO_NUM_26, GPIO_NUM_25);
@@ -41,16 +48,17 @@ SemaphoreHandle_t dataMutex;
 DashboardData my_data;
 DashboardData initial_data;
 volatile bool shutdown_flag = false; 
+bool show_eeprom_warning = false;
 
 /**
  * @brief Thread-safe container for telemetry data shared between cores.
  */
 struct SharedData {
     TripComputer trip;
-    
     FiatCAN::EngineData engine = {};
-    uint16_t speed_kmh = 0;
+    float speed_kmh = 0.0f;
     uint8_t fuel_level = 0;
+    uint16_t autonomy_km = 0xFFFF;
 } shared_data;
 
 /**
@@ -102,18 +110,17 @@ void task_can_core0(void *pvParameters) {
                 if (id == FiatCAN::ID_ENGINE_DATA) {
                     shared_data.engine = FiatCAN::parseEngineData(payload, dlc);
                 } 
-                
-                /* TODO: Reverse engineer and implement parsers for the following missing CAN IDs:
-                   - Vehicle Speed (currently mocked/missing)
-                   - Fuel Level (raw sensor data)*/
-                /*
-                else if (id == ID_SPEED) {
-                    shared_data.speed_kmh = (payload[2] << 8) | payload[3]; 
+                else if (id == FiatCAN::ID_SPEED) {
+                    shared_data.speed_kmh = FiatCAN::parseSpeed(payload, dlc);
                 }
-                else if (id == ID_FUEL_LEVEL) {
-                    shared_data.fuel_level = payload[0]; 
+                else if (id == FiatCAN::ID_FUEL_LEVEL) {
+                    uint8_t current_fuel = FiatCAN::parseFuelLevel(payload, dlc);
+                    if (current_fuel <= 100) { 
+                        shared_data.fuel_level = current_fuel;
+                    }
+                } else if (id == FiatCAN::ID_AUTONOMY) {
+                    shared_data.autonomy_km = FiatCAN::parseAutonomy(payload, dlc);
                 }
-                */
                 xSemaphoreGive(dataMutex);
             }
         }
@@ -144,9 +151,15 @@ void task_can_core0(void *pvParameters) {
  * @brief Core 1 Task: Visual Engine and Non-blocking Shutdown Evaluation.
  */
 void task_gui_core1(void *pvParameters) {
-    TickType_t last_cycle_time = xTaskGetTickCount();
-    const TickType_t cycle_interval = pdMS_TO_TICKS(3000);
-
+    screen.begin();
+    if (show_eeprom_warning) {
+        my_data.settings = screen.getSettings();
+        storage.saveData(my_data);
+        initial_data = my_data;
+        screen.showEepromWarning();
+    } else {
+        screen.applySettings(my_data.settings);
+    }
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(40);
 
@@ -155,7 +168,20 @@ void task_gui_core1(void *pvParameters) {
     bool evaluating_shutdown = false;
     TickType_t shutdown_eval_start = 0;
 
+    ButtonHandler buttonHandler(screen);
+    buttonHandler.begin();
+
+    uint16_t displayed_autonomy = 0xFFFF;
+    TickType_t last_autonomy_update = 0;
+    const TickType_t AUTONOMY_STEP_DELAY = pdMS_TO_TICKS(1500);
+#if !ENABLE_USB_SNIFFER && ENABLE_PERFORMANCE_LOGGING
+    int frame_counter = 0;
+#endif
     while (1) {
+#if !ENABLE_USB_SNIFFER && ENABLE_PERFORMANCE_LOGGING
+        // When USB sniffer is enabled, the GUI task is not needed. Yield to avoid
+        int64_t t_start = esp_timer_get_time();
+#endif
         // Snapshot the shared data to minimize mutex hold time and prevent blocking the CAN core
         if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
             local_snapshot = shared_data;
@@ -196,66 +222,34 @@ void task_gui_core1(void *pvParameters) {
             }
         }
 
-        /* TODO: Implement hardware button polling/interrupts (Trip, Menu, Plus, Minus).
-           Once physical GPIO buttons are wired and debounced, remove this automated 
-           navigation block and trigger the screen.handleButtonX() functions via ISR or polling.*/
-        
-        // --- TEMPORAL MOCKED UI NAVIGATION ---
-        if ((xTaskGetTickCount() - last_cycle_time) >= cycle_interval) {
-            if (xSemaphoreTake(dataMutex, pdMS_TO_TICKS(5)) == pdTRUE) {
-                
-                static int dashboard_step = 0;
-                static int settings_step = 0;
-                static bool in_settings = false;
+        buttonHandler.update();
 
-                if (!in_settings) {
-                    if (dashboard_step < static_cast<int>(DisplayPage::MAX_PAGES) - 1) {
-                        screen.handleButtonTrip(); 
-                        dashboard_step++;
+        if (local_snapshot.autonomy_km == 0xFFFF) {
+            displayed_autonomy = 0xFFFF; 
+        } else if (displayed_autonomy == 0xFFFF) {
+            displayed_autonomy = local_snapshot.autonomy_km;
+        } else if (displayed_autonomy != local_snapshot.autonomy_km) {
+            int diff = abs((int)local_snapshot.autonomy_km - (int)displayed_autonomy);
+            if (diff > 40) {
+                displayed_autonomy = local_snapshot.autonomy_km;
+            } 
+            else {
+                TickType_t now = xTaskGetTickCount();
+                if ((now - last_autonomy_update) >= AUTONOMY_STEP_DELAY) {
+                    if (displayed_autonomy < local_snapshot.autonomy_km) {
+                        displayed_autonomy++;
                     } else {
-                        screen.handleButtonMenu(); 
-                        in_settings = true;
-                        dashboard_step = 0;
-                        settings_step = 0;
+                        displayed_autonomy--;
                     }
-                } else {
-                    switch (settings_step) {
-                        case 0:
-                            screen.handleButtonTrip(); 
-                            settings_step++;
-                            break;
-                        case 1:
-                            screen.handleButtonMenu(); 
-                            settings_step++;
-                            break;
-                        case 2:
-                        case 3:
-                        case 4:
-                            screen.handleButtonPlus(); 
-                            settings_step++;
-                            break;
-                        case 5:
-                            screen.handleButtonMenu(); 
-                            in_settings = false;
-                            settings_step = 0;
-                            
-                            screen.handleComboTripPlus();
-                            break;
-                        default:
-                            settings_step = 0;
-                            break;
-                    }
+                    last_autonomy_update = now;
                 }
-
-                xSemaphoreGive(dataMutex);
             }
-            last_cycle_time = xTaskGetTickCount();
         }
 
         screen.updateKM(local_snapshot.trip.getTotalKm());
         screen.updateEngine(local_snapshot.engine);
         screen.updateSpeed(local_snapshot.speed_kmh);
-        screen.updateAutonomy(local_snapshot.trip.getAutonomyKm());
+        screen.updateAutonomy(displayed_autonomy);
         
         screen.updateTripData(
             local_snapshot.trip.getTripKm(), 
@@ -267,8 +261,25 @@ void task_gui_core1(void *pvParameters) {
         screen.updateFuel(local_snapshot.fuel_level);
         screen.render();
 
+#if !ENABLE_USB_SNIFFER && ENABLE_PERFORMANCE_LOGGING
+        int64_t t_end = esp_timer_get_time();
+
+        int elapsed_ms = (t_end - t_start) / 1000;
+
+        frame_counter++;
+        if (frame_counter >= 25) {
+            ESP_LOGI("GUI_PERF", "Render time: %d ms", elapsed_ms);
+            frame_counter = 0;
+        }
+#endif
+
         // Enforce a strict ~25 FPS frame rate (40ms) to ensure smooth animations and feed the task watchdog
-        vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        if ((xTaskGetTickCount() - xLastWakeTime) < xFrequency) {
+            vTaskDelayUntil(&xLastWakeTime, xFrequency);
+        } else {
+            vTaskDelay(1);
+            xLastWakeTime = xTaskGetTickCount();
+        }
     }
 }
 
@@ -301,6 +312,8 @@ extern "C" void app_main(void) {
     // Ensure the processor wakes up when the ignition is turned back on
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_34, 1);
 
+    vTaskDelay(pdMS_TO_TICKS(100));
+
     if (storage.begin()) {
         rtc.begin(storage.getBusHandle());
         rtc.syncSystemTime();
@@ -308,26 +321,21 @@ extern "C" void app_main(void) {
         if (storage.loadData(my_data)) {
             initial_data = my_data;
             shared_data.trip.init(my_data.total_km, my_data.fractional_km, my_data.trip_km, my_data.trip_time, my_data.trip_fuel_consumed, my_data.recent_avg_l_100km);
-            screen.applySettings(my_data.settings);
         } else {
             // First boot or EEPROM corruption: initialize with safe defaults and show warning UI
-            my_data.magic = 0xFA170001;
+            my_data.magic = 0xFA170002;
             my_data.total_km = 402000;
             my_data.fractional_km = 0.0f;
             my_data.trip_km = 0.0f;
             my_data.trip_time = 0;
             my_data.trip_fuel_consumed = 0.0f;
             my_data.recent_avg_l_100km = 0.0f;
-            my_data.settings = screen.getSettings();
-            
-            storage.saveData(my_data); 
+
             initial_data = my_data;
             shared_data.trip.init(402000, 0.0f, 0.0f, 0, 0.0f, 0.0f);
-            screen.showEepromWarning();
+            show_eeprom_warning = true;
         }
     }
-
-    screen.begin();
 
     screen.setOnTripResetCallback([]() {
         if (xSemaphoreTake(dataMutex, portMAX_DELAY) == pdTRUE) {

@@ -6,6 +6,7 @@ idf_component_register(
         "StorageManager.cpp" 
         "RtcManager.cpp"
         "TripComputer.cpp"
+        "ButtonHandler.cpp"
     INCLUDE_DIRS 
         "."
     REQUIRES 
@@ -15,4 +16,5 @@ idf_component_register(
         "esp_driver_i2c"
         "esp_driver_twai"
         "log"
+        "esp_adc"
 )

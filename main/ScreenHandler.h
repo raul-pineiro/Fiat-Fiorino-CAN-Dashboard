@@ -295,22 +295,24 @@ private:
      * 
      * @param top_text Text to display at the top.
      * @param center_text Main text in the center.
+     * @param unit_text Text to display as the unit.
      * @param show_trip Whether to display trip information.
      * @param icon The type of icon to display.
      * @param bottom_left_text Text to display in the bottom left.
      */
-    void renderClassicTemplate(const char* top_text, const char* center_text, bool show_trip, IconType icon, const char* bottom_left_text);
+    void renderClassicTemplate(const char* top_text, const char* center_text, const char* unit_text, bool show_trip, IconType icon, const char* bottom_left_text);
 
     /**
      * @brief Renders the modern visual template.
      * 
      * @param top_text Text to display at the top.
      * @param center_text Main text in the center.
+     * @param unit_text Text to display as the unit.
      * @param show_trip Whether to display trip information.
      * @param icon The type of icon to display.
      * @param bottom_left_text Text to display in the bottom left.
      */
-    void renderModernTemplate(const char* top_text, const char* center_text, bool show_trip, IconType icon, const char* bottom_left_text);
+    void renderModernTemplate(const char* top_text, const char* center_text, const char* unit_text, bool show_trip, IconType icon, const char* bottom_left_text);
     
     /**
      * @brief Draws a placeholder icon based on the specified type.
