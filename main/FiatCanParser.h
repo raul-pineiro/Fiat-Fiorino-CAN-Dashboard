@@ -131,7 +131,7 @@ namespace FiatCAN {
      * @return Autonomy value, or 0xFFFF if error.
      */
     inline uint16_t parseAutonomy(const uint8_t* payload, uint8_t dlc) {
-        if (dlc < 6 || !(payload[4] & 0x80)) {
+        if (dlc < 6) {
             return 0xFFFF;
         }
         return ((payload[4] & 0x03) << 8) | payload[5];

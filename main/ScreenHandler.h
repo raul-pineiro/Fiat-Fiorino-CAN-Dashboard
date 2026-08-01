@@ -28,7 +28,7 @@ enum class UIMode {
  * @brief Enumerates the available pages within the settings menu.
  */
 enum class SettingsPage {
-    UNIT_SELECTION,
+    REGIONAL_SETUP,
     DYNAMIC_RPM_COLOR,
     CLOCK_CONFIGURATION,
     RESET_TRIP,
@@ -247,7 +247,7 @@ private:
     /**
      * @brief Custom RGB565 color definition for the retro amber theme.
      */
-    static constexpr uint16_t AMBER_RETRO = 0xFB20; 
+    static constexpr uint16_t AMBER_RETRO = 0xFA80; 
     
     /**
      * @brief Hardware configuration struct for LovyanGFX (ST7789 via SPI).
@@ -278,7 +278,7 @@ private:
     SystemSettings _settings;
     UIMode _ui_mode;
     MenuLevel _menu_level = MenuLevel::PAGE_SELECT;
-    SettingsPage _current_settings_page = SettingsPage::UNIT_SELECTION;
+    SettingsPage _current_settings_page = SettingsPage::REGIONAL_SETUP;
 
     int _current_sub_option = 0;
     int _edit_hour = 0;

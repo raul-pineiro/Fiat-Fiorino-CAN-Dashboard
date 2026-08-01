@@ -90,3 +90,7 @@ bool StorageManager::loadData(DashboardData& data) {
     
     return false;
 }
+
+uint32_t StorageManager::get_magic_number(){
+    return MAGIC_NUMBER;
+}

@@ -48,8 +48,8 @@ private:
     /**
      * @brief ADC raw reading thresholds (range 0 - 4095).
      */
-    static constexpr int ADC_PLUS_MAX = 500;   /**< Upper raw threshold for PLUS button (~0V). */
-    static constexpr int ADC_MENU_MIN = 1200;  /**< Lower raw threshold for MENU button (~1.5V). */
+    static constexpr int ADC_PLUS_MAX = 900;   /**< Upper raw threshold for PLUS button (~0V). */
+    static constexpr int ADC_MENU_MIN = 1300;  /**< Lower raw threshold for MENU button (~1.5V). */
     static constexpr int ADC_MENU_MAX = 2400;  /**< Upper raw threshold for MENU button (~1.5V). */
 
     /**
@@ -61,4 +61,7 @@ private:
     bool _menu_prev;
 
     bool _trip_consumed_by_combo; /**< Flag indicating the TRIP release event was suppressed by a combination press. */
+
+    bool _menu_pending;
+    bool _menu_lockout;
 };

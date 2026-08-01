@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "Translator.h"
 /**
  * @file SystemSettings.h
  * @brief Defines system settings and related enumerations for the application.
@@ -46,8 +47,6 @@ enum class DisplayStyle {
     MODERN_DARK
 };
 
-
-
 /** @brief Structure to hold all system settings. */
 struct SystemSettings {
     MeasurementSystem unit_system = MeasurementSystem::METRIC;
@@ -55,4 +54,5 @@ struct SystemSettings {
     bool dynamic_rpm_color = true;
     DisplayPage display_page = DisplayPage::TOTAL_KM;
     DisplayStyle display_style = DisplayStyle::CLASSIC_AMBER;
+    SystemLanguage language = SystemLanguage::ENGLISH;
 };
