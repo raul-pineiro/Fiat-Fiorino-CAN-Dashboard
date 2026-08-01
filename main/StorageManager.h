@@ -65,6 +65,13 @@ public:
      */
     bool loadData(DashboardData& data);
 
+    /**
+     * @brief Retrieves the magic number used for data validation and versioning.
+     * 
+     * @return uint32_t The expected magic number for the current data structure.
+     */
+    uint32_t get_magic_number();
+
 private:
     i2c_port_t _port;                               /**< I2C peripheral port number */
     gpio_num_t _sda;                                /**< I2C SDA GPIO pin */
@@ -78,7 +85,7 @@ private:
     static constexpr uint16_t MEM_ADDR_PRIMARY = 0x0000; /**< Primary memory slot starting address */
     static constexpr uint16_t MEM_ADDR_BACKUP  = 0x0100; /**< Backup memory slot starting address for redundancy */
     
-    static constexpr uint32_t MAGIC_NUMBER = 0xFA170002; /**< Unique signature to verify data integrity upon reading */
+    static constexpr uint32_t MAGIC_NUMBER = 0xFA170001; /**< Unique signature to verify data integrity upon reading */
 
     /**
      * @brief Writes raw byte data to a specific memory address in the EEPROM.

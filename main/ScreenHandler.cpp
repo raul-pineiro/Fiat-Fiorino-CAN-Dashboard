@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <time.h>
 #include "esp_timer.h"
+#include "Translator.h"
 
 // Viewport dimensions and offsets for the display
 #define VIEWPORT_WIDTH  290  
@@ -220,16 +221,16 @@ void ScreenHandler::drawPage() {
     switch (_settings.display_page) {
         case DisplayPage::TOTAL_KM:
             if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
-                sub_text = "TOTAL MI";
+                sub_text = getText(TextKey::TOTAL_MI, _settings.language);
                 snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_current_km * 0.621371f));
             } else {
-                sub_text = "TOTAL KM";
+                sub_text = getText(TextKey::TOTAL_KM, _settings.language);
                 snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_current_km));
             }
             break;
 
         case DisplayPage::AUTONOMY: {
-            sub_text = "AUTONOMY";
+            sub_text = getText(TextKey::AUTONOMY, _settings.language);
             icon = IconType::FUEL;
             
             if (_autonomy_km != 0xFFFF && _autonomy_km > 0) {
@@ -255,7 +256,7 @@ void ScreenHandler::drawPage() {
         }
 
         case DisplayPage::TRIP_KM:
-            sub_text = "DISTANCE";
+            sub_text = getText(TextKey::DISTANCE, _settings.language);
             show_trip = true;
             if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
                 snprintf(value_buf, sizeof(value_buf), "%.1f", static_cast<float>(_trip_km * 0.621371f));
@@ -267,7 +268,7 @@ void ScreenHandler::drawPage() {
             break;
 
         case DisplayPage::TRIP_L_100KM:
-            sub_text = "AVG CONS.";
+            sub_text = getText(TextKey::AVG_CONS, _settings.language);
             show_trip = true;
 
             if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
@@ -285,7 +286,7 @@ void ScreenHandler::drawPage() {
             break;
 
         case DisplayPage::INSTANT_L_100KM:
-            sub_text = "INST CONS.";
+            sub_text = getText(TextKey::INST_CONS, _settings.language);
 
             if (_speed < 3) {
                 if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
@@ -317,7 +318,7 @@ void ScreenHandler::drawPage() {
             break;
 
         case DisplayPage::TRIP_AVG_KMH:
-            sub_text = "AVG SPEED";
+            sub_text = getText(TextKey::AVG_SPEED, _settings.language);
             show_trip = true; 
             if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
                 snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_trip_avg_kmh * 0.621371f));
@@ -329,7 +330,7 @@ void ScreenHandler::drawPage() {
             break;
 
         case DisplayPage::TRIP_TIME:
-            sub_text = "TIME";
+            sub_text = getText(TextKey::TIME, _settings.language);
             show_trip = true;
 
             if (_trip_time >= 3600) {
@@ -344,7 +345,7 @@ void ScreenHandler::drawPage() {
             break;
             
         case DisplayPage::RPM_TEMP:
-            sub_text = "ENGINE RPM";
+            sub_text = getText(TextKey::ENGINE_RPM, _settings.language);
             icon = IconType::TEMP;
             snprintf(value_buf, sizeof(value_buf), "%u", static_cast<unsigned>(_rpm));
             snprintf(unit_buf ,sizeof(unit_buf), "rpm");
@@ -358,7 +359,7 @@ void ScreenHandler::drawPage() {
             break;
 
         case DisplayPage::DIGITAL_SPEED:
-            sub_text = "SPEED";
+            sub_text = getText(TextKey::SPEED, _settings.language);
             if (_settings.unit_system == MeasurementSystem::IMPERIAL) {
                 snprintf(value_buf, sizeof(value_buf), "%u", (unsigned int)(_speed * 0.621371f));
                 snprintf(unit_buf, sizeof(unit_buf), "mph");
@@ -512,30 +513,32 @@ void ScreenHandler::drawOverlays() {
     int height = canvas.height();
 
     // Clock Overlay
-    time_t now;
-    struct tm timeinfo;
-    time(&now);
-    localtime_r(&now, &timeinfo);
-    
-    char time_str[10];
-    snprintf(time_str, sizeof(time_str), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
-    
-    if (_settings.display_style == DisplayStyle::CLASSIC_AMBER) {
-        int line_y = height - 55;
-        int bottom_y = line_y + (height - line_y) / 2;
+    if (_ui_mode == UIMode::DASHBOARD){
+        time_t now;
+        struct tm timeinfo;
+        time(&now);
+        localtime_r(&now, &timeinfo);
         
-        canvas.setFont(nullptr);
-        canvas.setTextSize(2.5f);
-        canvas.setTextColor(TFT_BLACK, AMBER_RETRO);
-        canvas.setTextDatum(middle_right);
-        canvas.drawString(time_str, width - 15, bottom_y);
-    } else {
-        canvas.setFont(&fonts::FreeSansBold12pt7b);
-        canvas.setTextSize(1); 
-        canvas.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-        canvas.setTextDatum(bottom_right);
-        canvas.drawString(time_str, width - 15, height - 10);
-        canvas.setFont(nullptr);
+        char time_str[10];
+        snprintf(time_str, sizeof(time_str), "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
+        
+        if (_settings.display_style == DisplayStyle::CLASSIC_AMBER) {
+            int line_y = height - 55;
+            int bottom_y = line_y + (height - line_y) / 2;
+            
+            canvas.setFont(nullptr);
+            canvas.setTextSize(2.5f);
+            canvas.setTextColor(TFT_BLACK, AMBER_RETRO);
+            canvas.setTextDatum(middle_right);
+            canvas.drawString(time_str, width - 15, bottom_y);
+        } else {
+            canvas.setFont(&fonts::FreeSansBold12pt7b);
+            canvas.setTextSize(1); 
+            canvas.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+            canvas.setTextDatum(bottom_right);
+            canvas.drawString(time_str, width - 15, height - 10);
+            canvas.setFont(nullptr);
+        }
     }
 
     // Shutdown Sequence Overlay
@@ -549,12 +552,12 @@ void ScreenHandler::drawOverlays() {
         
         if (_save_success) {
             canvas.setTextColor(TFT_GREEN);
-            canvas.drawString("Memory Saved", width / 2, height / 2 - 10);
-            canvas.drawString("Shutting down...", width / 2, height / 2 + 10);
+            canvas.drawString(getText(TextKey::MEM_SAVED, _settings.language), width / 2, height / 2 - 10);
+            canvas.drawString(getText(TextKey::SHUTTING_DOWN, _settings.language), width / 2, height / 2 + 10);
         } else {
             canvas.setTextColor(TFT_RED);
-            canvas.drawString("MEMORY ERROR", width / 2, height / 2 - 10);
-            canvas.drawString("Data lost", width / 2, height / 2 + 10);
+            canvas.drawString(getText(TextKey::MEM_ERROR, _settings.language), width / 2, height / 2 - 10);
+            canvas.drawString(getText(TextKey::DATA_LOST, _settings.language), width / 2, height / 2 + 10);
         }
     }
     
@@ -566,7 +569,7 @@ void ScreenHandler::drawOverlays() {
             canvas.setTextColor(TFT_WHITE);
             canvas.setTextDatum(middle_center);
             canvas.setTextSize(1);
-            canvas.drawString("EEPROM CORRUPT / RESET", width / 2, 30);
+            canvas.drawString(getText(TextKey::EEPROM_CORRUPT, _settings.language), width / 2, 30);
         } else {
             _show_eeprom_warning = false;
         }
@@ -579,24 +582,29 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
     int w = canvas.width();
     int h = canvas.height();
 
+    const char* page_titles[] = {
+        getText(TextKey::MENU_SYSTEM_SETTINGS_TITLE, _settings.language),
+        getText(TextKey::MENU_RPM_TITLE, _settings.language),
+        getText(TextKey::MENU_CLOCK_TITLE, _settings.language),
+        getText(TextKey::MENU_RESET_TITLE, _settings.language)
+    };
+
     // Level 1: Page navigation (Large font)
     if (_menu_level == MenuLevel::PAGE_SELECT) {
         canvas.setFont(&fonts::FreeSansBold18pt7b);
         canvas.setTextDatum(middle_center);
         canvas.setTextColor(highlight_color, bg_color);
         
-        const char* page_titles[] = {"UNITS", "RPM COLOR", "CLOCK", "RESET TRIP"};
         canvas.drawString(page_titles[static_cast<int>(_current_settings_page)], w / 2, h / 2 - 20);
 
         canvas.setFont(&fonts::FreeSans9pt7b);
         canvas.setTextColor(text_color, bg_color);
-        canvas.drawString("Press TRIP to configure", w / 2, h - 70);
-        canvas.drawString("+ / - to change page", w / 2, h - 50);
+        canvas.drawString(getText(TextKey::MENU_PRESS_TRIP, _settings.language), w / 2, h - 70);
+        canvas.drawString(getText(TextKey::MENU_CHANGE_PAGE, _settings.language), w / 2, h - 50);
         return; 
     }
 
     // Levels 2 and 3: Inside a specific page
-    const char* page_titles[] = {"UNITS SETUP", "RPM COLOR SETUP", "CLOCK SETUP", "RESET TRIP"};
     canvas.setFont(&fonts::FreeSansBold12pt7b);
     canvas.setTextDatum(middle_center);
     canvas.setTextColor(highlight_color, bg_color);
@@ -607,10 +615,32 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
     if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
         canvas.setTextDatum(middle_center);
         canvas.setFont(&fonts::FreeSansBold24pt7b);
+
+        bool blink_off = false;
+        if (_menu_level == MenuLevel::EDIT_VALUE){
+            uint32_t ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+            blink_off = (ms / 500) % 2 != 0;
+        }
         
-        char time_buf[16];
-        snprintf(time_buf, sizeof(time_buf), "%02d:%02d", _edit_hour, _edit_minute);
-        canvas.drawString(time_buf, w/2, h/2);
+        char hr_buf[4], min_buf[4];
+        snprintf(hr_buf, sizeof(hr_buf), "%02d", _edit_hour);
+        snprintf(min_buf, sizeof(min_buf), "%02d", _edit_minute);
+
+        int colon_w = canvas.textWidth(":");
+        int offset = (colon_w / 2) + 4; 
+
+        canvas.setTextDatum(middle_center);
+        canvas.drawString(":", w/2, h/2);
+
+        if (!(blink_off && _clock_edit_step == ClockEditStep::HOURS)) {
+            canvas.setTextDatum(middle_right);
+            canvas.drawString(hr_buf, w/2 - offset, h/2);
+        }
+
+        if (!(blink_off && _clock_edit_step == ClockEditStep::MINUTES)) {
+            canvas.setTextDatum(middle_left);
+            canvas.drawString(min_buf, w/2 + offset, h/2);
+        }
 
         canvas.setFont(nullptr);
         canvas.setTextColor(highlight_color);
@@ -619,7 +649,7 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
         } else {
             canvas.drawString("^^", w/2 + 35, h/2 + 30);
         }
-        return; 
+        return;
     }
 
     canvas.setFont(&fonts::FreeSans12pt7b);
@@ -631,27 +661,33 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
     char opt1_text[32], opt2_text[32];
     char val1_text[16], val2_text[16];
 
-    if (_current_settings_page == SettingsPage::UNIT_SELECTION) {
-        snprintf(opt1_text, sizeof(opt1_text), "System");
-        opt2_text[0] = '\0';
-        snprintf(val1_text, sizeof(val1_text), _settings.unit_system == MeasurementSystem::METRIC ? "METRIC" : "IMPERIAL");
-        val2_text[0] = '\0';
+    if (_current_settings_page == SettingsPage::REGIONAL_SETUP) {
+        snprintf(opt1_text, sizeof(opt1_text), getText(TextKey::MENU_SYSTEM, _settings.language));
+        snprintf(val1_text, sizeof(val1_text), _settings.unit_system == MeasurementSystem::METRIC ? getText(TextKey::MENU_METRIC, _settings.language) : getText(TextKey::MENU_IMPERIAL, _settings.language));
+        snprintf(opt2_text, sizeof(opt2_text), getText(TextKey::MENU_LANGUAGE, _settings.language));
+        snprintf(val2_text, sizeof(val2_text), getLanguageName(_settings.language));
     }
     else if (_current_settings_page == SettingsPage::DYNAMIC_RPM_COLOR) {
-        const char* color_names[] = {"BLUE", "CYAN", "GREEN", "YELLOW", "RED", "WHITE"};
-        snprintf(opt1_text, sizeof(opt1_text), "Dynamic");
-        snprintf(opt2_text, sizeof(opt2_text), "Theme");
-        snprintf(val1_text, sizeof(val1_text), _settings.dynamic_rpm_color ? "ON" : "OFF");
+        const char* color_names[] = {
+            getText(TextKey::COLOR_BLUE, _settings.language),
+            getText(TextKey::COLOR_CYAN, _settings.language),
+            getText(TextKey::COLOR_GREEN, _settings.language),
+            getText(TextKey::COLOR_YELLOW, _settings.language),
+            getText(TextKey::COLOR_RED, _settings.language),
+            getText(TextKey::COLOR_WHITE, _settings.language)};
+        snprintf(opt1_text, sizeof(opt1_text), getText(TextKey::MENU_DYNAMIC, _settings.language));
+        snprintf(opt2_text, sizeof(opt2_text), getText(TextKey::MENU_THEME, _settings.language));
+        snprintf(val1_text, sizeof(val1_text), _settings.dynamic_rpm_color ? getText(TextKey::MENU_ON, _settings.language) : getText(TextKey::MENU_OFF, _settings.language));
         snprintf(val2_text, sizeof(val2_text), color_names[static_cast<int>(_settings.modern_theme_color)]);
     }
     else if (_current_settings_page == SettingsPage::RESET_TRIP) {
         canvas.setTextDatum(middle_center);
-        canvas.drawString("Are you sure?", w / 2, (h / 2) - 15);
+        canvas.drawString(getText(TextKey::MENU_ARE_YOU_SURE, _settings.language), w / 2, (h / 2) - 15);
         
-        snprintf(opt1_text, sizeof(opt1_text), "Cancel");
-        snprintf(opt2_text, sizeof(opt2_text), "Clear Data");
-        snprintf(val1_text, sizeof(val1_text), "NO");
-        snprintf(val2_text, sizeof(val2_text), "YES");
+        snprintf(opt1_text, sizeof(opt1_text), getText(TextKey::MENU_CANCEL, _settings.language));
+        snprintf(opt2_text, sizeof(opt2_text), getText(TextKey::MENU_CLEAR_DATA, _settings.language));
+        snprintf(val1_text, sizeof(val1_text), getText(TextKey::MENU_NO, _settings.language));
+        snprintf(val2_text, sizeof(val2_text), getText(TextKey::MENU_YES, _settings.language));
     }
 
     char draw_buf[32];
@@ -702,7 +738,7 @@ void ScreenHandler::handleButtonMenu() {
     if (_ui_mode == UIMode::DASHBOARD) {
         _ui_mode = UIMode::SETTINGS;
         _menu_level = MenuLevel::PAGE_SELECT;
-        _current_settings_page = SettingsPage::UNIT_SELECTION;
+        _current_settings_page = SettingsPage::REGIONAL_SETUP;
     } else {
         // Go back one level or exit
         if (_menu_level == MenuLevel::EDIT_VALUE) {
@@ -789,16 +825,15 @@ void ScreenHandler::handleButtonPlus() {
         _current_settings_page = static_cast<SettingsPage>(next);
     } 
     else if (_menu_level == MenuLevel::SUB_SELECT) {
-        if (_current_settings_page == SettingsPage::UNIT_SELECTION) {
-            _current_sub_option = 0; 
-        } else {
-            _current_sub_option = (_current_sub_option + 1) % 2;
-        }
+        _current_sub_option = (_current_sub_option + 1) % 2;
     }
     else if (_menu_level == MenuLevel::EDIT_VALUE) {
-        if (_current_settings_page == SettingsPage::UNIT_SELECTION) {
+        if (_current_settings_page == SettingsPage::REGIONAL_SETUP) {
             if (_current_sub_option == 0) {
                 _settings.unit_system = (_settings.unit_system == MeasurementSystem::METRIC) ? MeasurementSystem::IMPERIAL : MeasurementSystem::METRIC;
+            } else if (_current_sub_option == 1) {
+                int next_lang = (static_cast<int>(_settings.language) + 1) % static_cast<int>(SystemLanguage::MAX_LANGUAGES);
+                _settings.language = static_cast<SystemLanguage>(next_lang);
             }
         } else if (_current_settings_page == SettingsPage::DYNAMIC_RPM_COLOR) {
             if (_current_sub_option == 0) {
@@ -825,11 +860,7 @@ void ScreenHandler::handleButtonMinus() {
         _current_settings_page = static_cast<SettingsPage>(prev);
     } 
     else if (_menu_level == MenuLevel::SUB_SELECT) {
-        if (_current_settings_page == SettingsPage::UNIT_SELECTION) {
-            _current_sub_option = 0;
-        } else {
-            _current_sub_option = (_current_sub_option - 1 + 2) % 2;
-        }
+        _current_sub_option = (_current_sub_option - 1 + 2) % 2;
     }
     else if (_menu_level == MenuLevel::EDIT_VALUE) {
         // Binary options toggle the same way as the Plus button
@@ -837,6 +868,11 @@ void ScreenHandler::handleButtonMinus() {
         if (_current_settings_page == SettingsPage::DYNAMIC_RPM_COLOR && _current_sub_option == 1) {
             int prev_col = (static_cast<int>(_settings.modern_theme_color) - 1 + static_cast<int>(ModernThemeColor::MAX_COLORS)) % static_cast<int>(ModernThemeColor::MAX_COLORS);
             _settings.modern_theme_color = static_cast<ModernThemeColor>(prev_col);
+
+        } else if (_current_settings_page == SettingsPage::REGIONAL_SETUP && _current_sub_option == 1) {
+            int prev_lang = (static_cast<int>(_settings.language) - 1 + static_cast<int>(SystemLanguage::MAX_LANGUAGES)) % static_cast<int>(SystemLanguage::MAX_LANGUAGES);
+            _settings.language = static_cast<SystemLanguage>(prev_lang);
+            
         } else if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
             if (_clock_edit_step == ClockEditStep::HOURS) {
                 _edit_hour = (_edit_hour - 1 + 24) % 24;

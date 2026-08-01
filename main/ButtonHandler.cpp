@@ -7,7 +7,9 @@ ButtonHandler::ButtonHandler(ScreenHandler& screen)
       _minus_prev(false), 
       _plus_prev(false), 
       _menu_prev(false), 
-      _trip_consumed_by_combo(false) {}
+      _trip_consumed_by_combo(false),
+      _menu_pending(false),
+      _menu_lockout(false) {}
 
 ButtonHandler::~ButtonHandler() {
     if (_adc_handle != nullptr) {
@@ -44,7 +46,7 @@ void ButtonHandler::update() {
     bool current_trip = (gpio_get_level(PIN_TRIP) == 1);
     bool current_minus = (gpio_get_level(PIN_MINUS) == 1);
 
-    int adc_val = 0;
+    int adc_val = 4095;
     if (_adc_handle != nullptr) {
         adc_oneshot_read(_adc_handle, ADC_CHANNEL_MENU_PLUS, &adc_val);
     }
@@ -52,6 +54,7 @@ void ButtonHandler::update() {
     // Demultiplex discrete buttons sharing a single ADC input via resistor divider levels.
     bool current_plus = (adc_val <= ADC_PLUS_MAX);
     bool current_menu = (adc_val >= ADC_MENU_MIN && adc_val <= ADC_MENU_MAX);
+    bool current_idle = (adc_val > ADC_MENU_MAX);
 
     // TRIP standalone action evaluates on release, allowing it to act as a modifier key for press combos.
     if (current_trip && !_trip_prev) {
@@ -63,18 +66,33 @@ void ButtonHandler::update() {
         }
     }
 
-    /*if (current_plus && !_plus_prev) {
-        if (current_trip) {
-            _screen.handleComboTripPlus();
-            _trip_consumed_by_combo = true; // Suppress standalone TRIP action when button is released.
-        } else {
-            _screen.handleButtonPlus();
+    if (current_plus) {
+        if (!_plus_prev) {
+            if (current_trip) {
+                _screen.handleComboTripPlus();
+                _trip_consumed_by_combo = true; // Suppress standalone TRIP action when button is released.
+            } else {
+                _screen.handleButtonPlus();
+            }
         }
-    }*/
-
-    /*if (current_menu && !_menu_prev) {
-        _screen.handleButtonMenu();
-    }*/
+        
+        // Target voltage reached the lowest threshold, meaning PLUS was intended.
+        // Lockout prevents a false MENU trigger as the voltage rises back through the intermediate threshold on release.
+        _menu_pending = false;
+        _menu_lockout = true;
+    } 
+    else if (current_menu) {
+        if (!_menu_lockout) {
+            _menu_pending = true;
+        }
+    } 
+    else if (current_idle) {
+        if (_menu_pending) {
+            _screen.handleButtonMenu();
+            _menu_pending = false;
+        }
+        _menu_lockout = false;
+    }
 
     /*if (current_minus && !_minus_prev) {
         _screen.handleButtonMinus();

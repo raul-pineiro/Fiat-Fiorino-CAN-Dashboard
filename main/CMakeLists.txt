@@ -7,6 +7,7 @@ idf_component_register(
         "RtcManager.cpp"
         "TripComputer.cpp"
         "ButtonHandler.cpp"
+        "Translator.cpp"
     INCLUDE_DIRS 
         "."
     REQUIRES 

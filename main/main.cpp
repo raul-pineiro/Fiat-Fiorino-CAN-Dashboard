@@ -323,8 +323,8 @@ extern "C" void app_main(void) {
             shared_data.trip.init(my_data.total_km, my_data.fractional_km, my_data.trip_km, my_data.trip_time, my_data.trip_fuel_consumed, my_data.recent_avg_l_100km);
         } else {
             // First boot or EEPROM corruption: initialize with safe defaults and show warning UI
-            my_data.magic = 0xFA170002;
-            my_data.total_km = 402000;
+            my_data.magic = storage.get_magic_number();
+            my_data.total_km = 402373;
             my_data.fractional_km = 0.0f;
             my_data.trip_km = 0.0f;
             my_data.trip_time = 0;
@@ -332,7 +332,7 @@ extern "C" void app_main(void) {
             my_data.recent_avg_l_100km = 0.0f;
 
             initial_data = my_data;
-            shared_data.trip.init(402000, 0.0f, 0.0f, 0, 0.0f, 0.0f);
+            shared_data.trip.init(402373, 0.0f, 0.0f, 0, 0.0f, 0.0f);
             show_eeprom_warning = true;
         }
     }
