@@ -74,6 +74,11 @@ public:
      * @brief Initializes the display hardware, backlights, and sprite buffers.
      */
     void begin();
+
+    /**
+     * @brief Turns off the backlight and suspends the display hardware to minimize power consumption.
+     */
+    void sleep();
     
     /**
      * @brief Explicitly sets the UI color theme.
@@ -112,13 +117,6 @@ public:
      * @param engine Reference to the decoded EngineData structure.
      */
     void updateEngine(const FiatCAN::EngineData& engine);
-
-    /**
-     * @brief Updates the active trip computer mode requested by the CAN bus.
-     * 
-     * @param mode The decoded TripMode.
-     */
-    void updateTripMode(FiatCAN::TripMode mode);
 
     /**
      * @brief Updates the vehicle speed for rendering.
@@ -273,7 +271,6 @@ private:
     uint16_t _trip_avg_kmh;
     uint32_t _trip_time;
     uint16_t _autonomy_km;
-    FiatCAN::TripMode _trip_mode;
 
     SystemSettings _settings;
     UIMode _ui_mode;

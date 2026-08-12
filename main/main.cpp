@@ -30,7 +30,7 @@
  * @def ENABLE_USB_SNIFFER
  * @brief Toggles the SLCAN compatible USB sniffer output for development.
  */
-#define ENABLE_USB_SNIFFER 1
+#define ENABLE_USB_SNIFFER 0
 
 /**
  * @def ENABLE_PERFORMANCE_LOGGING
@@ -118,7 +118,7 @@ void task_can_core0(void *pvParameters) {
                     if (current_fuel <= 100) { 
                         shared_data.fuel_level = current_fuel;
                     }
-                } else if (id == FiatCAN::ID_AUTONOMY) {
+                } else if (id == FiatCAN::ID_CLUSTER_INFO) {
                     shared_data.autonomy_km = FiatCAN::parseAutonomy(payload, dlc);
                 }
                 xSemaphoreGive(dataMutex);
@@ -199,8 +199,8 @@ void task_gui_core1(void *pvParameters) {
                 shutdown_flag = false;
                 evaluating_shutdown = false;
             } else {
-                // Require a stable 5-second power loss before committing to EEPROM write to avoid corruption during voltage spikes
-                if ((xTaskGetTickCount() - shutdown_eval_start) >= pdMS_TO_TICKS(5000)) {
+                // Require a stable 2-second power loss before committing to EEPROM write to avoid corruption during voltage spikes
+                if ((xTaskGetTickCount() - shutdown_eval_start) >= pdMS_TO_TICKS(2000)) {
                     my_data.total_km = local_snapshot.trip.getTotalKm();
                     my_data.fractional_km = local_snapshot.trip.getFractionalKm();
                     my_data.trip_km = local_snapshot.trip.getTripKm();
@@ -217,6 +217,7 @@ void task_gui_core1(void *pvParameters) {
                     screen.render();
                     // Allow the TFT enough time to refresh and show the saving status before deep sleep
                     vTaskDelay(pdMS_TO_TICKS(2000));
+                    screen.sleep();
                     esp_deep_sleep_start();
                 }
             }

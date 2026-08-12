@@ -3,6 +3,7 @@
 #include <time.h>
 #include "esp_timer.h"
 #include "Translator.h"
+#include "MyFonts.h"
 
 // Viewport dimensions and offsets for the display
 #define VIEWPORT_WIDTH  290  
@@ -63,14 +64,14 @@ ScreenHandler::ScreenHandler()
       _temp(0), 
       _fuel(0), 
       _speed(0), _trip_km(0), _trip_l_100km(0.0f), _trip_avg_kmh(0), _trip_time(0),
-      _autonomy_km(0),
-      _trip_mode(FiatCAN::TRIP_IDLE) {}
+      _autonomy_km(0) {}
 
 ScreenHandler::~ScreenHandler() {
     canvas.deleteSprite();
 }
 
 void ScreenHandler::begin() {
+    lcd.wakeup();
     lcd.init();
     lcd.setBrightness(255);
     lcd.setRotation(1);
@@ -78,8 +79,13 @@ void ScreenHandler::begin() {
     
     canvas.setColorDepth(16);
     if (canvas.createSprite(VIEWPORT_WIDTH, VIEWPORT_HEIGHT) == nullptr) {
-        printf("ERROR: No hay suficiente memoria para el Sprite!\n");
+        printf("ERROR: Insufficient memory for the Sprite!\n");
     }
+}
+
+void ScreenHandler::sleep() {
+    lcd.setBrightness(0);
+    lcd.sleep();
 }
 
 void ScreenHandler::updateKM(uint32_t km) { 
@@ -90,10 +96,6 @@ void ScreenHandler::updateEngine(const FiatCAN::EngineData& engine) {
     _rpm = engine.rpm;
     _consumption = engine.consumption_lh;
     _temp = engine.temp;
-}
-
-void ScreenHandler::updateTripMode(FiatCAN::TripMode mode) { 
-    _trip_mode = mode; 
 }
 
 void ScreenHandler::updateSpeed(uint16_t speed) { _speed = speed; }
@@ -133,6 +135,7 @@ void ScreenHandler::setPage(DisplayPage page) {
 }
 
 void ScreenHandler::render() {
+    canvas.setTextSize(1);
     if (_ui_mode == UIMode::DASHBOARD) {
         drawPage();
     } else {
@@ -160,24 +163,25 @@ void ScreenHandler::renderClassicTemplate(const char* sub_text, const char* main
     canvas.fillSprite(AMBER_RETRO);
     int width = canvas.width();
     int height = canvas.height();
+    
+    canvas.setFont(&::FreeSansBold18pt8b);
 
     canvas.setTextColor(TFT_BLACK, AMBER_RETRO);
 
     int value_y = height / 3 - 15;
 
-    canvas.setTextSize(4);
     int value_width = canvas.textWidth(main_value);
-    
-    canvas.setTextSize(2);
+
+    canvas.setFont(&::FreeSans9pt8b);    
     int unit_width = (unit_text && unit_text[0] != '\0') ? canvas.textWidth(unit_text) : 0;
 
-    canvas.setTextSize(4);
+    canvas.setFont(&::FreeSansBold20pt8b);
     canvas.setTextDatum(middle_center);
     canvas.drawString(main_value, width / 2, value_y);
 
     if (unit_width > 0) {
         int unit_x = (width / 2) + (value_width / 2) + 4;
-        canvas.setTextSize(2);
+        canvas.setFont(&::FreeSans9pt8b);
         canvas.setTextDatum(bottom_left);
         canvas.drawString(unit_text, unit_x, value_y + 14);
     }
@@ -187,13 +191,13 @@ void ScreenHandler::renderClassicTemplate(const char* sub_text, const char* main
     }
 
     int text_y = height / 2 + 10;
-    canvas.setTextSize(3);
+    canvas.setFont(&::FreeSans16pt8b);
     canvas.setTextDatum(middle_center);
     canvas.drawString(sub_text, width / 2, text_y);
     
     text_y = height / 2 - 10;
+    canvas.setFont(&::FreeSans9pt8b);
     if (show_trip) {
-        canvas.setTextSize(2);
         canvas.setTextDatum(middle_left);
         canvas.drawString("TRIP", 15, text_y);
     }
@@ -202,7 +206,6 @@ void ScreenHandler::renderClassicTemplate(const char* sub_text, const char* main
     canvas.drawFastHLine(15, line_y, width - 30, TFT_BLACK);
     
     int bottom_y = line_y + (height - line_y) / 2;
-    canvas.setTextSize(2);
     canvas.setTextDatum(middle_left);
     canvas.drawString(bottom_left_text, 15, bottom_y);
 }
@@ -381,9 +384,9 @@ void ScreenHandler::drawPage() {
 }
 
 void ScreenHandler::drawPlaceholderIcon(IconType icon, int x, int y, uint16_t color) {
-    canvas.setFont(nullptr);
+    canvas.setFont(&::FreeSansBold9pt8b); 
     canvas.setTextDatum(middle_center);
-    canvas.setTextSize(2);
+    ;
     canvas.setTextColor(color);
     canvas.drawCircle(x, y, 14, color);
     
@@ -400,7 +403,7 @@ void ScreenHandler::drawPlaceholderIcon(IconType icon, int x, int y, uint16_t co
         default:
             break;
     }
-    canvas.setTextSize(1);
+    
 }
 
 void ScreenHandler::renderModernTemplate(const char* sub_text, const char* main_value, const char* unit_text, bool show_trip, IconType icon, const char* bottom_left_text) {
@@ -442,10 +445,10 @@ void ScreenHandler::renderModernTemplate(const char* sub_text, const char* main_
 
     canvas.drawFastHLine(20, height / 3 - 10, width - 40, line_color);
 
-    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.setFont(&::FreeSansBold12pt8b);
     canvas.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
     canvas.setTextDatum(middle_center);
-    canvas.setTextSize(1);
+    
     canvas.drawString(sub_text, width / 2, height / 4 - 10);
 
     if (show_trip) {
@@ -456,13 +459,13 @@ void ScreenHandler::renderModernTemplate(const char* sub_text, const char* main_
 
     int value_y = height / 2 + 5;
 
-    canvas.setFont(&fonts::FreeSansBold24pt7b);
+    canvas.setFont(&::FreeSansBold24pt8b);
     int value_width = canvas.textWidth(main_value);
     
-    canvas.setFont(&fonts::FreeSansBold9pt7b);
+    canvas.setFont(&::FreeSansBold9pt8b);
     int unit_width = (unit_text && unit_text[0] != '\0') ? canvas.textWidth(unit_text) : 0;
 
-    canvas.setFont(&fonts::FreeSansBold24pt7b);
+    canvas.setFont(&::FreeSansBold24pt8b);
     canvas.setTextColor(TFT_WHITE, TFT_BLACK);
     canvas.setTextDatum(middle_center);
     canvas.drawString(main_value, width / 2, value_y);
@@ -470,7 +473,7 @@ void ScreenHandler::renderModernTemplate(const char* sub_text, const char* main_
     int unit_x = (width / 2) + (value_width / 2) + 6;
 
     if (unit_width > 0) {
-        canvas.setFont(&fonts::FreeSansBold9pt7b);
+        canvas.setFont(&::FreeSansBold9pt8b);
         canvas.setTextColor(theme_color, TFT_BLACK);
         canvas.setTextDatum(bottom_left);
         canvas.drawString(unit_text, unit_x, value_y + 12);
@@ -485,14 +488,14 @@ void ScreenHandler::renderModernTemplate(const char* sub_text, const char* main_
     }
 
     if (bottom_left_text && bottom_left_text[0] != '\0') {
-        canvas.setFont(&fonts::FreeSansBold9pt7b);
-        canvas.setTextSize(1);
+        canvas.setFont(&::FreeSansBold9pt8b);
+        
         canvas.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
         canvas.setTextDatum(bottom_left);
         canvas.drawString(bottom_left_text, 15, height - 10);
     }
 
-    canvas.setFont(nullptr);
+    canvas.setFont(&::FreeSans9pt8b);
 }
 
 void ScreenHandler::renderMenu() {
@@ -526,18 +529,18 @@ void ScreenHandler::drawOverlays() {
             int line_y = height - 55;
             int bottom_y = line_y + (height - line_y) / 2;
             
-            canvas.setFont(nullptr);
-            canvas.setTextSize(2.5f);
+            canvas.setFont(&::FreeSans12pt8b); 
+            
             canvas.setTextColor(TFT_BLACK, AMBER_RETRO);
             canvas.setTextDatum(middle_right);
             canvas.drawString(time_str, width - 15, bottom_y);
         } else {
-            canvas.setFont(&fonts::FreeSansBold12pt7b);
-            canvas.setTextSize(1); 
+            canvas.setFont(&::FreeSansBold12pt8b);
+             
             canvas.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
             canvas.setTextDatum(bottom_right);
             canvas.drawString(time_str, width - 15, height - 10);
-            canvas.setFont(nullptr);
+            canvas.setFont(&::FreeSans9pt8b);
         }
     }
 
@@ -548,7 +551,7 @@ void ScreenHandler::drawOverlays() {
         
         canvas.setTextColor(TFT_WHITE);
         canvas.setTextDatum(middle_center);
-        canvas.setTextSize(1);
+        
         
         if (_save_success) {
             canvas.setTextColor(TFT_GREEN);
@@ -568,7 +571,7 @@ void ScreenHandler::drawOverlays() {
             
             canvas.setTextColor(TFT_WHITE);
             canvas.setTextDatum(middle_center);
-            canvas.setTextSize(1);
+            
             canvas.drawString(getText(TextKey::EEPROM_CORRUPT, _settings.language), width / 2, 30);
         } else {
             _show_eeprom_warning = false;
@@ -578,7 +581,7 @@ void ScreenHandler::drawOverlays() {
 
 void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t highlight_color) {
     canvas.fillSprite(bg_color);
-    canvas.setTextSize(1);
+    
     int w = canvas.width();
     int h = canvas.height();
 
@@ -591,13 +594,13 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
 
     // Level 1: Page navigation (Large font)
     if (_menu_level == MenuLevel::PAGE_SELECT) {
-        canvas.setFont(&fonts::FreeSansBold18pt7b);
+        canvas.setFont(&::FreeSansBold18pt8b);
         canvas.setTextDatum(middle_center);
         canvas.setTextColor(highlight_color, bg_color);
         
         canvas.drawString(page_titles[static_cast<int>(_current_settings_page)], w / 2, h / 2 - 20);
 
-        canvas.setFont(&fonts::FreeSans9pt7b);
+        canvas.setFont(&::FreeSans9pt8b);
         canvas.setTextColor(text_color, bg_color);
         canvas.drawString(getText(TextKey::MENU_PRESS_TRIP, _settings.language), w / 2, h - 70);
         canvas.drawString(getText(TextKey::MENU_CHANGE_PAGE, _settings.language), w / 2, h - 50);
@@ -605,7 +608,7 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
     }
 
     // Levels 2 and 3: Inside a specific page
-    canvas.setFont(&fonts::FreeSansBold12pt7b);
+    canvas.setFont(&::FreeSansBold12pt8b);
     canvas.setTextDatum(middle_center);
     canvas.setTextColor(highlight_color, bg_color);
     canvas.drawString(page_titles[static_cast<int>(_current_settings_page)], w / 2, (h / 4) - 10);
@@ -614,7 +617,7 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
     // Special screen for clock configuration
     if (_current_settings_page == SettingsPage::CLOCK_CONFIGURATION) {
         canvas.setTextDatum(middle_center);
-        canvas.setFont(&fonts::FreeSansBold24pt7b);
+        canvas.setFont(&::FreeSansBold24pt8b);
 
         bool blink_off = false;
         if (_menu_level == MenuLevel::EDIT_VALUE){
@@ -642,7 +645,7 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
             canvas.drawString(min_buf, w/2 + offset, h/2);
         }
 
-        canvas.setFont(nullptr);
+        canvas.setFont(&::FreeSans9pt8b);
         canvas.setTextColor(highlight_color);
         if (_clock_edit_step == ClockEditStep::HOURS) {
             canvas.drawString("^^", w/2 - 35, h/2 + 30);
@@ -652,11 +655,17 @@ void ScreenHandler::drawMenuUI(uint16_t bg_color, uint16_t text_color, uint16_t 
         return;
     }
 
-    canvas.setFont(&fonts::FreeSans12pt7b);
+    canvas.setFont(&::FreeSans12pt8b);
     int y_opt1 = (h / 2) + 5;
     
     // Extra spacing for readability
     int y_opt2 = (h / 2) + 50; 
+
+    // Extra space for the ARE_YOU_SURE text
+    if (_current_settings_page == SettingsPage::RESET_TRIP) {
+        y_opt1 += 15; 
+        y_opt2 += 15; 
+    }
 
     char opt1_text[32], opt2_text[32];
     char val1_text[16], val2_text[16];
@@ -807,6 +816,10 @@ void ScreenHandler::handleButtonTrip() {
                 t.tm_min = _edit_minute;
                 struct timeval tv = { mktime(&t), 0 };
                 settimeofday(&tv, NULL);
+
+                if (_on_clock_set_cb) {
+                    _on_clock_set_cb(_edit_hour, _edit_minute);
+                }
                 
                 _clock_edit_step = ClockEditStep::NONE;
                 _menu_level = MenuLevel::PAGE_SELECT; 

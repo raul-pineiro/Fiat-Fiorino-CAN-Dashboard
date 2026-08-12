@@ -94,9 +94,9 @@ void ButtonHandler::update() {
         _menu_lockout = false;
     }
 
-    /*if (current_minus && !_minus_prev) {
+    if (current_minus && !_minus_prev) {
         _screen.handleButtonMinus();
-    }*/
+    }
 
     _trip_prev = current_trip;
     _plus_prev = current_plus;

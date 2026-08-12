@@ -6,10 +6,10 @@ static const char* const DICTIONARY[static_cast<int>(TextKey::MAX_KEYS)][static_
     {"TOTAL KM",               "TOTAL KM"},                // TOTAL_KM
     {"AUTONOMY",               "AUTONOMÍA"},               // AUTONOMY
     {"DISTANCE",               "DISTANCIA"},               // DISTANCE
-    {"AVG CONS.",              "CONS. MEDIO"},             // AVG_CONS
-    {"INST CONS.",             "CONS. INST."},             // INST_CONS
+    {"AVG CONS.",              "CONS. MED."},              // AVG_CONS
+    {"INST CONS.",             "CONS. INST."},              // INST_CONS
     {"AVG SPEED",              "VEL. MEDIA"},              // AVG_SPEED
-    {"TIME",                   "HORA"},                    // TIME
+    {"TIME",                   "TIEMPO"},                    // TIME
     {"ENGINE RPM",             "RPM MOTOR"},               // ENGINE_RPM
     {"SPEED",                  "VELOCIDAD"},               // SPEED
 

@@ -8,22 +8,10 @@ namespace FiatCAN {
      */
     ///@{
     constexpr uint32_t ID_ENGINE_DATA = 0x04214001;
-    constexpr uint32_t ID_CLUSTER_KM  = 0x0C014003;
+    constexpr uint32_t ID_CLUSTER_INFO = 0x0C014003;
     constexpr uint32_t ID_SPEED = 0x04394000;
     constexpr uint32_t ID_FUEL_LEVEL  = 0x06214000;
-    constexpr uint32_t ID_AUTONOMY = 0x0C014003;
     ///@}
-
-    /**
-     * @brief Display modes for the dashboard trip computer.
-     */
-    enum TripMode {
-        TRIP_IDLE            = 0x00,
-        TRIP_AVG_CONSUMPTION = 0xF2,
-        TRIP_AVG_SPEED       = 0xF3,
-        TRIP_DISTANCE        = 0xF4,
-        TRIP_TRAVEL_TIME     = 0xF5
-    };
 
     /**
      * @brief Decoded real-time engine metrics.
@@ -66,32 +54,12 @@ namespace FiatCAN {
             data.injection_mm3 = raw_iq / 100.0f;
             
             // Calculates liters/hour based on injection quantity and RPM
-            data.consumption_lh = (raw_iq * data.rpm * 1.2f) / 1000000.0f; 
+            data.consumption_lh = (raw_iq * data.rpm * 1.2f) / 1000000.0f; // L/h calc for 4-cyl, 4-stroke: (raw_iq/100 mm3/stroke) * (RPM * 2 strokes/rev) * 60 min / 1e6
             
             data.temp = payload[3] - 40;
         }
         
         return data;
-    }
-
-    /**
-     * @brief Determines the active trip computer menu based on cluster messages.
-     * 
-     * @param payload Raw CAN frame data payload.
-     * @param dlc Data Length Code (must be >= 6).
-     * @return Current TripMode, defaulting to TRIP_IDLE.
-     */
-    inline TripMode parseTripMode(const uint8_t* payload, uint8_t dlc) {
-        if (dlc >= 6) {
-            switch(payload[5]) {
-                case 0xF2: return TRIP_AVG_CONSUMPTION;
-                case 0xF3: return TRIP_AVG_SPEED;
-                case 0xF4: return TRIP_DISTANCE;
-                case 0xF5: return TRIP_TRAVEL_TIME;
-                default:   return TRIP_IDLE;
-            }
-        }
-        return TRIP_IDLE;
     }
 
     /**
