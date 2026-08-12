@@ -64,7 +64,7 @@ La electrónica se conecta directamente a la placa interna del cuadro:
 * **Microcontrolador:** ESP32 DevKit (gestión RTOS a doble núcleo, DMA para pantalla y Deep Sleep).
 * **Interfaz CAN:** Transceptor **TJA1055T** (B-CAN de baja velocidad tolerante a fallos) adaptado con un convertidor de nivel lógico bidireccional **TXS0108E** (3.3V <-> 5V).
 * **Pantalla:** TFT 2.4" SPI (ST7789) controlada mediante **LovyanGFX** con DMA por hardware.
-* **Reloj y Memoria Externa:** **DS3231 RTC + EEPROM AT24C32** por I2C. Guarda los kilómetros extra pasados los 399.999 km para evitar desgastar la memoria Flash del ESP32.
+* **Reloj y Memoria Externa:** **DS3231 RTC + EEPROM AT24C32** por I2C. Mantiene la hora en tiempo real y guarda el kilometraje total acumulado del vehículo para evitar el desgaste de la memoria Flash del ESP32.
 * **Gestión de Alimentación (Doble Regulador):**
   * **Regulador 1 (12V Batería Directa / Línea 30):** Mantiene el ESP32 alimentado tras quitar la llave para ejecutar el guardado en EEPROM y entrar en Deep Sleep (~10–20 µA).
   * **Regulador 2 (12V Contacto / Línea 15):** Alimenta los buses y transceptores solo cuando el coche está encendido.

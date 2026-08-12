@@ -66,7 +66,7 @@ The custom board interfaces directly with the cluster's internal electronics:
 * **MCU:** ESP32 DevKit (handles dual-core RTOS logic, display DMA, and deep sleep state).
 * **CAN Interface:** **TJA1055T** (Fault-Tolerant Low-Speed B-CAN transceiver) paired with a **TXS0108E** bi-directional logic level shifter (3.3V <-> 5V).
 * **Display:** 2.4" SPI TFT (ST7789) driven using **LovyanGFX** with hardware DMA.
-* **RTC & External Storage:** **DS3231 RTC + AT24C32 EEPROM** over I2C. Keeps track of real-time clock data and stores extra mileage past 399,999 km without wearing out the ESP32's flash memory.
+* **RTC & External Storage:** **DS3231 RTC + AT24C32 EEPROM** over I2C. Keeps track of real-time clock data and stores total vehicle mileage without wearing out the ESP32's flash memory.
 * **Dual Power Regulation:**
   * **Buck 1 (Always-On 12V / Battery Line 30):** Keeps the ESP32 powered briefly after ignition off to execute EEPROM saves and transition into Deep Sleep (~10–20 µA consumption).
   * **Buck 2 (Switched 12V / Ignition Line 15):** Powers the CAN transceivers and level shifters only when the ignition key is turned on.
