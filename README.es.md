@@ -13,17 +13,19 @@
 
 ---
 
-## 🚀 El Reto y Éxito en la Inspección Técnica (ITV)
+## El Reto y Éxito en la Inspección Técnica (ITV)
 
 Muchos cuadros de instrumentos de la plataforma Fiat Mini (Fiorino, Grande Punto, Alfa Romeo Mito) tienen un fallo de fábrica en su software: al alcanzar los **399.999 km**, el odómetro se congela permanentemente y deja de registrar el kilometraje. En países con inspecciones de vehículos obligatorias y estrictas (como la **ITV** española), esto hace que un vehículo mecánicamente en buen estado sea ilegal para circular.
 
 En lugar de cambiar el cuadro completo por piezas caras que volverán a fallar, este proyecto sustituye la pantalla LCD monocromo central original por una **pantalla TFT a color ST7789 de 2.4"** controlada por un ESP32. 
 
-Mediante ingeniería inversa del bus B-CAN del vehículo, el microcontrolador lee la telemetría en tiempo real, calcula y guarda de forma segura el kilometraje extra a partir de los 400.000 km, y renderiza una interfaz personalizada. **El vehículo superó con éxito la inspección oficial de la ITV española con este sistema instalado, demostrando la fiabilidad y precisión de esta solución integrada.**
+Mediante ingeniería inversa del bus B-CAN del vehículo, el microcontrolador lee la telemetría en tiempo real, **calcula y guarda el kilometraje total**, y renderiza una interfaz personalizada.
+
+**El vehículo superó con éxito la inspección oficial de la ITV española con este sistema instalado, demostrando la fiabilidad y precisión de esta solución integrada.**
 
 
 
-## 🎨 Interfaz de Usuario: Integración de Doble Tema
+## Interfaz de Usuario: Integración de Doble Tema
 
 El sistema permite cambiar de tema sobre la marcha según las preferencias del conductor.
 
@@ -73,8 +75,8 @@ La electrónica se conecta directamente a la placa interna del cuadro:
 ## Características Clave de la Interfaz y Pantalla
 
 * **Doble Tema Visual:** Cambia entre **Ámbar Clásico** (fiel al aspecto monocromo OEM de Fiat) y **Moderna** (fondo oscuro con detalles de colores personalizados).
-* **Indicador Dinámico de Cambio/RPM:** Cuenta con una barra de RPM de múltiples etapas. Alcanzar velocidades críticas del motor activa una pantalla de advertencia roja parpadeante.
-* **Conversión de Unidades en Tiempo Real:** Cambio perfecto entre el sistema Métrico (`km`, `L/100km`, `°C`) e Imperial (`mi`, `mpg`, `°F`).
+* **Indicador Dinámico de Cambio/RPM:** Cuenta con una barra de RPM de múltiples etapas en el tema moderno. Alcanzar velocidades críticas del motor activa un parpadeo en la mísma.
+* **Conversión de Unidades en Tiempo Real:** Cambio entre el sistema Métrico (`km`, `L/100km`, `°C`) e Imperial (`mi`, `mpg`, `°F`).
 * **Reloj Integrado y Menú de Ajustes:** Menú de configuración completo de varios niveles para ajustar la hora mediante el RTC DS3231, resetear el ordenador de a bordo, elegir el idioma y los colores dinámicos usando directamente los botones originales del salpicadero.
 * **Avisos de Estado de Hardware:** Ventanas emergentes en pantalla que notifican al usuario el estado de la EEPROM en tiempo real, guardados exitosos al apagar el motor, o errores de corrupción de memoria.
 

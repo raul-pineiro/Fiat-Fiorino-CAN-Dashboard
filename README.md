@@ -13,17 +13,19 @@
 
 ---
 
-## 🚀 The Challenge & Official Roadworthiness Success (ITV)
+## The Challenge & Official Roadworthiness Success (ITV)
 
 Many instrument clusters on Fiat Mini platform vehicles (Fiorino, Grande Punto, Alfa Romeo Mito) have a factory software bug: once the odometer reaches **399,999 km**, it permanently freezes and stops recording mileage. In countries with strict mandatory vehicle inspections (like the Spanish **ITV**), this effectively renders a mechanically sound vehicle illegal to drive.
 
 Rather than replacing the entire cluster with expensive parts that will eventually fail again, this project replaces the stock central monochrome LCD with a custom **2.4" ST7789 color TFT display** driven by an ESP32. 
 
-By reverse-engineering the vehicle's B-CAN bus, the microcontroller reads live telemetry, calculates and securely stores the extra mileage past 400,000 km, and renders a custom UI. **The vehicle successfully passed the official Spanish ITV inspection with this system installed, proving the reliability and accuracy of the embedded solution.**
+By reverse-engineering the vehicle's B-CAN bus, the microcontroller reads live telemetry, **independently calculates and securely stores the total mileage**, and renders a custom UI.
+
+**The vehicle successfully passed the official Spanish ITV inspection with this system installed, proving the reliability and accuracy of the embedded solution.**
 
 
 
-## 🎨 User Interface: Dual Theme Integration
+## User Interface: Dual Theme Integration
 
 The system features on-the-fly theme switching to match the driver's preference.
 
@@ -76,7 +78,7 @@ The custom board interfaces directly with the cluster's internal electronics:
 ## Key UI & Display Features
 
 * **Dual Visual Themes:** Switch between **Classic Amber** (faithful OEM Fiat monochrome look) and **Modern UI** (dark background with custom theme accents).
-* **Dynamic Shift/RPM Indicator:** Features a multi-stage RPM bar. Reaching critical engine speeds triggers an active red flashing warning screen.
+* **Dynamic Shift/RPM Indicator:** Features a multi-stage RPM bar in the modern theme. Reaching critical engine speeds triggers a flashing alert directly on the bar.
 * **On-the-Fly Unit Conversion:** Seamless switching between Metric (`km`, `L/100km`, `°C`) and Imperial (`mi`, `mpg`, `°F`) unit systems.
 * **Integrated Clock & Settings Menu:** Full multi-level settings menu to configure time via DS3231 RTC, trip computer reset, language preferences, and dynamic colors directly using original dashboard buttons.
 * **Hardware Status Overlays:** On-screen popups notify the user of real-time EEPROM state, successful saves during key-off, or memory corruption errors.
