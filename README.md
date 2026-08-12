@@ -87,7 +87,7 @@ The custom board interfaces directly with the cluster's internal electronics:
 
 ## Firmware Architecture (FreeRTOS)
 
-> **[Deep Dive: View the complete reverse-engineered Fiat B-CAN frame matrix here ➔](docs/CAN_Matrix.md)**
+> **[Deep Dive: View the complete reverse-engineered Fiat B-CAN frame matrix here ➔](docs/Can_Matrix.md)**
 
 The software is written in C++ using FreeRTOS, splitting telemetry decoding and UI rendering across both ESP32 cores:
 

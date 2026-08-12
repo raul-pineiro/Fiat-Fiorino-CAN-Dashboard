@@ -84,7 +84,7 @@ La electrónica se conecta directamente a la placa interna del cuadro:
 
 ## Arquitectura de Firmware (FreeRTOS)
 
-> **[Análisis a Fondo: Mira la matriz de tramas B-CAN de Fiat obtenida por ingeniería inversa aquí ➔](docs/CAN_Matrix.es.md)**
+> **[Análisis a Fondo: Mira la matriz de tramas B-CAN de Fiat obtenida por ingeniería inversa aquí ➔](docs/Can_Matrix.es.md)**
 
 El software está escrito en C++ sobre FreeRTOS, repartiendo las tareas entre los dos núcleos del ESP32:
 
