@@ -92,7 +92,7 @@ The custom board interfaces directly with the cluster's internal electronics:
 The software is written in C++ using FreeRTOS, splitting telemetry decoding and UI rendering across both ESP32 cores:
 
 * **Core 0 (`task_can_core0`):** High-priority execution. Decodes real-time B-CAN frames (speed, RPM, fuel level, autonomy) and calculates high-frequency trip computer metrics.
-* **Core 1 (`task_gui_core1`):** Renders the ST7789 UI via SPI DMA capped at ~25 FPS (40ms period) to guarantee smooth animations without starving system resources. Handles button polling via ADC1, manages UI state transitions, updates the real-time clock overlay, and orchestrates the safe shutdown sequence.
+* **Core 1 (`task_gui_core1`):** Renders the ST7789 UI via SPI DMA capped at ~25 FPS (40ms period) for continuous display updates without starving system resources. Handles button polling via ADC1, manages finite state machine (FSM) screen changes, updates the real-time clock overlay, and orchestrates the safe shutdown sequence.
 * **Thread Safety:** Telemetry data calculated on Core 0 is exposed to Core 1 via a thread-safe `SharedData` struct protected by a FreeRTOS `dataMutex`.
 * **Power-Down Sequence:** When the ignition key is turned off, GPIO 34 fires a hardware ISR (`FALLING`). Core 1 verifies a stable 2-second power loss, saves odometer data to the external AT24C32 EEPROM over I2C, displays a visual saving feedback overlay, and puts the ESP32 into Deep Sleep.
 * **Passive CAN ASCII Streamer:** Toggling `#define ENABLE_USB_SNIFFER 1` outputs raw B-CAN frames over Serial using standard LAWICEL/SLCAN formatting (`t1238...`). This allows live traffic monitoring and logging via any Serial terminal or custom Python scripts.
