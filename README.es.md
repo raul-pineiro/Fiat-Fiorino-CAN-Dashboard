@@ -69,10 +69,12 @@ La electrónica se conecta directamente a la placa interna del cuadro:
   * **Regulador 1 (12V Batería Directa / Línea 30):** Mantiene el ESP32 alimentado tras quitar la llave para ejecutar el guardado en EEPROM y entrar en Deep Sleep (~10–20 µA).
   * **Regulador 2 (12V Contacto / Línea 15):** Alimenta los buses y transceptores solo cuando el coche está encendido.
 * **Sensor de Ignición:** GPIO 34 detecta el corte de contacto mediante un divisor RC (33kΩ / 10kΩ + 100nF) disparando una interrupción por hardware (`FALLING`).
-* **Botonera del Cuadro:** Arquitectura de entrada híbrida que usa entradas GPIO discretas para los controles `TRIP` y `MINUS`, además de un canal ADC1 multiplexado (`ADC_CHANNEL_MENU_PLUS`) para decodificar los botones `MENU` y `PLUS` desde una única línea de resistencias.
+* **Botonera del Cuadro:** Arquitectura de entrada híbrida que usa entradas GPIO discretas para los controles `TRIP` y `MINUS`, además de un canal ADC1 multiplexado (`ADC_CHANNEL_MENU_PLUS`) para decodificar los botones `MENU` y `PLUS` desde una única línea de resistencias. *(Lee el [Análisis de Pinout OEM e Ingeniería Inversa completo ➔](hardware/OEM_Pinout_Analysis.es.md))*
 
 
 ## Características Clave de la Interfaz y Pantalla
+
+> **[Análisis a Fondo: Mira la máquina de estados HMI, los diseños de pantalla y el mapeo de botones en la Guía de Arquitectura HMI ➔](docs/HMI_Architecture.es.md)**
 
 * **Doble Tema Visual:** Cambia entre **Ámbar Clásico** (fiel al aspecto monocromo OEM de Fiat) y **Moderna** (fondo oscuro con detalles de colores personalizados).
 * **Indicador Dinámico de Cambio/RPM:** Cuenta con una barra de RPM de múltiples etapas en el tema moderno. Alcanzar velocidades críticas del motor activa un parpadeo en la mísma.

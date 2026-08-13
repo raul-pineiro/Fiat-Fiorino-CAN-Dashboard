@@ -6,7 +6,7 @@
 
 This document specifies the electronic component selection, system architecture, and module integration for the Fiat Mini B-CAN Digital Cluster interface board.
 
-The design utilizes a **Carrier Board Architecture**, combining automated SMT passive assembly with Commercial Off-The-Shelf functional modules and galvanic isolation stages for rapid prototyping and modular serviceability.
+The design utilizes a **Carrier Board Architecture**, combining automated SMT passive assembly with commercial Off-The-Shelf functional modules and optical signal decoupling stages for rapid prototyping and modular serviceability.
 
 
 ## 1. Surface Mount Assembly BOM (JLCPCB PCBA)
@@ -21,6 +21,9 @@ The design utilizes a **Carrier Board Architecture**, combining automated SMT pa
 | **R6** | 1 | 150 kΩ, 1%, 0.25W | 1206 | UNI-ROYAL | `QR1206F150KP05Z` | C176234 | ADC Protection Divider Cable 1 (Lower) |
 | **R7, R8** | 2 | 2.2 kΩ, 1%, 0.25W | 1206 | UNI-ROYAL | `1206W4F2201T5E` | C17948 | Optocoupler Current Limiting / Pull-ups |
 
+> **Cross-Reference:** 
+> The selection of high-impedance values for the analog button matrix (R5, R6) is critical to avoid BCM fault codes. The mathematical justification and signal mapping are detailed in the [OEM Pinout & Reverse Engineering Analysis](OEM_Pinout_Analysis.md).
+
 ---
 
 ## 2. Integrated Circuits, Power & COTS Sub-Assemblies
@@ -30,7 +33,7 @@ The design utilizes a **Carrier Board Architecture**, combining automated SMT pa
 | **U1** | 1 | Microcontroller Core | Espressif Systems | `ESP32-WROOM-32` | DevKit Board (DIP Header) | Dual-Core 240 MHz, 3.3V Logic, Wi-Fi/BT |
 | **U2** | 1 | Fault-Tolerant CAN IC | NXP Semiconductors | `TJA1055T/3/C,518` | SOIC-14 (Direct Solder) | Low-Speed B-CAN (50 kbps), Automotive Grade |
 | **U3** | 1 | Level Translator Sub-Board | COTS (AliExpress) | `TXS0108E` Breakout | Pin Header Module | 8-Channel Bidirectional Voltage Level Translator ($3.3\text{V} \leftrightarrow 5\text{V}$) |
-| **U4, U6** | 2 | Optocoupler Isolator | Sharp / Generic | `PC817` | DIP-4 / Module | Galvanic Isolation for "Minus" (U4) and "Trip" (U6) Buttons ($V_{\text{iso}} = 5000\text{V}_{\text{rms}}$) |
+| **U4, U6** | 2 | Optocoupler Isolator | Sharp / Generic | `PC817` | DIP-4 / Module | Optical Signal Decoupling for "Minus" (U4) and "Trip" (U6) Buttons |
 | **U5** | 1 | RTC & EEPROM Sub-Board | COTS (AliExpress) | `DS3231` + `AT24C32` | $I^2C$ Pin Header (LIR3032) | High-Precision TCXO RTC + Non-Volatile Memory (Battery Backed) |
 | **U7** | 1 | DC-DC Step-Down Converter | Murata Power Solutions | `OKI-78SR-5/1.5-W36-C` | Single In-Line (SIP-3) | 12V Battery Permanent Input $\to$ 5V Output (Deep Sleep) |
 | **U8** | 1 | DC-DC Step-Down Converter | Murata Power Solutions | `OKI-78SR-5/1.5-W36-C` | Single In-Line (SIP-3) | 12V Ignition Switched Input $\to$ 5V Output (Logic/CAN) |
@@ -41,7 +44,7 @@ The design utilizes a **Carrier Board Architecture**, combining automated SMT pa
 ## 3. Electrical Architecture & Safety Highlights
 
 1. **Galvanic Isolation Stage (`PC817` Optocouplers):**
-   - High-voltage automotive transients (load dumps, inductive kickback from relays) and ground noise are decoupled from sensitive ESP32 GPIOs using optical isolation.
+   - High-voltage automotive transients (load dumps, inductive kickback from relays) and voltage spikes on input lines are decoupled from sensitive ESP32 GPIOs using optical signal conditioning.
 
 2. **High-Efficiency Power Regulation (`OKI-78SR`):**
    - Murata `OKI-78SR` switching regulators replace linear $7805$ regulators to eliminate heat dissipation issues under an input range of $7\text{V}$ to $36\text{V}$, yielding over 85% efficiency and preventing thermal shutdown in automotive cabin environments.

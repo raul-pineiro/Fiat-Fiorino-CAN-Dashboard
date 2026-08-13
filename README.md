@@ -71,11 +71,13 @@ The custom board interfaces directly with the cluster's internal electronics:
   * **Buck 1 (Always-On 12V / Battery Line 30):** Keeps the ESP32 powered briefly after ignition off to execute EEPROM saves and transition into Deep Sleep (~10–20 µA consumption).
   * **Buck 2 (Switched 12V / Ignition Line 15):** Powers the CAN transceivers and level shifters only when the ignition key is turned on.
 * **Ignition Sensor:** GPIO 34 monitors key status using an RC filter divider (33kΩ / 10kΩ + 100nF) to trigger a hardware ISR (`FALLING`).
-* **Cluster Buttons:** Hybrid input architecture using discrete GPIO inputs for `TRIP` and `MINUS` controls, plus a multiplexed ADC1 channel (`ADC_CHANNEL_MENU_PLUS`) to decode `MENU` and `PLUS` buttons from a single resistor ladder line.
+* **Cluster Buttons:** Hybrid input architecture using discrete GPIO inputs for `TRIP` and `MINUS` controls, plus a multiplexed ADC1 channel (`ADC_CHANNEL_MENU_PLUS`) to decode `MENU` and `PLUS` buttons from a single resistor ladder line. *(Read the full [OEM Pinout & Reverse Engineering Analysis ➔](hardware/OEM_Pinout_Analysis.md))*
 
 
 
 ## Key UI & Display Features
+
+> **[Deep Dive: View the full HMI state machine, screen layouts, and button input mapping in the HMI Architecture Guide ➔](docs/HMI_Architecture.md)**
 
 * **Dual Visual Themes:** Switch between **Classic Amber** (faithful OEM Fiat monochrome look) and **Modern UI** (dark background with custom theme accents).
 * **Dynamic Shift/RPM Indicator:** Features a multi-stage RPM bar in the modern theme. Reaching critical engine speeds triggers a flashing alert directly on the bar.

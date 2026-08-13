@@ -7,7 +7,7 @@
 
 Este documento especifica la selección de componentes electrónicos, la arquitectura del sistema y la integración de módulos para la placa de interfaz del Clúster Digital B-CAN de Fiat Mini.
 
-El diseño utiliza una **Arquitectura de Placa PCB**, combinando el ensamblaje automatizado de componentes pasivos SMT con módulos funcionales comerciales y etapas de aislamiento galvánico para un prototipado rápido y facilidad de mantenimiento modular.
+El diseño utiliza una **Arquitectura de Placa PCB**, combinando el ensamblaje automatizado de componentes pasivos SMT con módulos funcionales comerciales y etapas de desacoplamiento óptico para un prototipado rápido y facilidad de mantenimiento modular.
 
 ## 1. Lista de Materiales (BOM) para Ensamblaje de Montaje Superficial (JLCPCB PCBA)
 
@@ -21,6 +21,9 @@ El diseño utiliza una **Arquitectura de Placa PCB**, combinando el ensamblaje a
 | **R6** | 1 | 150 kΩ, 1%, 0.25W | 1206 | UNI-ROYAL | `QR1206F150KP05Z` | C176234 | Divisor de Protección del ADC Cable 1 (Inferior) |
 | **R7, R8** | 2 | 2.2 kΩ, 1%, 0.25W | 1206 | UNI-ROYAL | `1206W4F2201T5E` | C17948 | Limitación de Corriente del Optoacoplador / Resistencias Pull-up |
 
+> **Referencia Cruzada:** 
+> La selección de valores de alta impedancia para la matriz analógica de botones (R5, R6) es crítica para evitar códigos de error en la centralita (BCM). La justificación matemática y el mapeo de señales se detallan en el documento [Análisis de Pinout OEM e Ingeniería Inversa](OEM_Pinout_Analysis.es.md).
+
 ---
 
 ## 2. Circuitos Integrados, Potencia y Subensamblajes Comerciales
@@ -30,7 +33,7 @@ El diseño utiliza una **Arquitectura de Placa PCB**, combinando el ensamblaje a
 | **U1** | 1 | Núcleo del Microcontrolador | Espressif Systems | `ESP32-WROOM-32` | Placa DevKit (Cabezal DIP) | Doble Núcleo a 240 MHz, Lógica de 3.3V, Wi-Fi/BT |
 | **U2** | 1 | CI CAN Tolerante a Fallos | NXP Semiconductors | `TJA1055T/3/C,518` | SOIC-14 (Soldadura Directa) | B-CAN de Baja Velocidad (50 kbps), Grado Automotriz |
 | **U3** | 1 | Subplaca Traductora de Nivel | COTS (AliExpress) | Placa Breakout `TXS0108E` | Módulo con Cabezal de Pines | Traductor de Nivel de Tensión Bidireccional de 8 Canales (3.3V ↔ 5V) |
-| **U4, U6** | 2 | Aislador Optoacoplador | Sharp / Genérico | `PC817` | DIP-4 / Módulo | Aislamiento Galvánico para los Botones "Menos" (U4) y "Trip" (U6) ($V_{\text{iso}} = 5000\text{V}_{\text{rms}}$) |
+| **U4, U6** | 2 | Aislador Optoacoplador | Sharp / Genérico | `PC817` | DIP-4 / Módulo | Desacoplamiento Óptico de Señal para los Botones "Menos" (U4) y "Trip" (U6) |
 | **U5** | 1 | Subplaca RTC y EEPROM | COTS (AliExpress) | `DS3231` + `AT24C32` | Cabezal de Pines I2C (LIR3032) | RTC TCXO de Alta Precisión + Memoria No Volátil (Respaldo por Batería) |
 | **U7** | 1 | Convertidor Reductor DC-DC | Murata Power Solutions | `OKI-78SR-5/1.5-W36-C` | En Línea Simple (SIP-3) | Entrada Permanente de Batería de 12V → Salida de 5V (Modo Suspensión / Deep Sleep) |
 | **U8** | 1 | Convertidor Reductor DC-DC | Murata Power Solutions | `OKI-78SR-5/1.5-W36-C` | En Línea Simple (SIP-3) | Entrada Conmutada por Encendido de 12V → Salida de 5V (Lógica/CAN) |
@@ -41,7 +44,7 @@ El diseño utiliza una **Arquitectura de Placa PCB**, combinando el ensamblaje a
 ## 3. Arquitectura Eléctrica y Aspectos Destacados de Seguridad
 
 1. **Etapa de Aislamiento Galvánico (Optoacopladores `PC817`):**
-* Los transitorios automotrices de alto voltaje (picos de carga, retroceso inductivo de relés) y el ruido de masa se desacoplan de los sensibles GPIOs del ESP32 mediante aislamiento óptico.
+* Los transitorios automotrices de alto voltaje (picos de carga, retroceso inductivo de relés) y picos de tensión en las líneas de entrada se desacoplan de los sensibles GPIOs del ESP32 mediante acondicionamiento óptico de señal.
 
 
 2. **Regulación de Potencia de Alta Eficiencia (`OKI-78SR`):**
